@@ -8,7 +8,10 @@ use futures::StreamExt;
 use tokio::time::sleep;
 use uuid::Uuid;
 use whoop::{
-    constants::{MetadataType, CMD_FROM_STRAP, CMD_TO_STRAP, DATA_FROM_STRAP, EVENTS_FROM_STRAP, MEMFAULT, WHOOP_SERVICE},
+    constants::{
+        MetadataType, CMD_FROM_STRAP, CMD_TO_STRAP, DATA_FROM_STRAP, EVENTS_FROM_STRAP, MEMFAULT,
+        WHOOP_SERVICE,
+    },
     WhoopData, WhoopPacket,
 };
 
@@ -111,7 +114,9 @@ impl Whoop {
 
         match packet.uuid {
             DATA_FROM_STRAP => {
-                let packet = WhoopPacket::from_data(packet.bytes)?;
+                let Ok(packet) = WhoopPacket::from_data(packet.bytes) else {
+                    return Ok(false);
+                };
 
                 let Ok(data) = WhoopData::from_packet(packet) else {
                     return Ok(false);
