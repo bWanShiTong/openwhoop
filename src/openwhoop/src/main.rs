@@ -3,16 +3,28 @@ extern crate log;
 
 use std::time::Duration;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context, Result};
 use btleplug::{
     api::{BDAddr, Central, Manager as _, Peripheral as _, ScanFilter},
     platform::{Adapter, Manager, Peripheral},
 };
 use clap::{Parser, Subcommand};
+use dialoguer::Select;
 use dotenv::dotenv;
 use openwhoop::{DatabaseHandler, OpenWhoop, WhoopDevice};
-use tokio::time::sleep;
+use std::collections::HashSet;
+use std::env;
+use tokio::time::{sleep, Instant};
 use whoop::{constants::WHOOP_SERVICE, WhoopPacket};
+
+pub const DEFAULT_SCAN_DURATION: Duration = Duration::from_secs(10);
+pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+mod Platform;
+mod utils;
+
+use crate::utils::{get_adapter, initialize_platform_specific, sanitize_name};
+use crate::Platform::port;
 
 #[derive(Parser)]
 pub struct OpenWhoopCli {
@@ -28,98 +40,77 @@ pub struct OpenWhoopCli {
 pub enum OpenWhoopCommand {
     Scan,
     DownloadHistory {
-        #[arg(long, env)]
-        whoop_addr: BDAddr,
+        #[arg(long, alias = "whoop-name", env)]
+        device_identifier: Option<String>,
+        #[arg(long)]
+        interactive: bool,
     },
     ReRun,
     DetectEvents,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    if let Err(error) = dotenv() {
-        println!("{}", error);
-    }
+async fn initialize_stuff() -> Result<(OpenWhoopCli, DatabaseHandler, Adapter)> {
+    dotenv().ok();
+    initialize_platform_specific();
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .filter_module("sqlx::query", log::LevelFilter::Off)
         .init();
 
     let cli = OpenWhoopCli::parse();
-    let db_handler = DatabaseHandler::new(cli.database_url).await;
+    let db_handler = DatabaseHandler::new(cli.database_url.clone()).await;
+    let manager = Manager::new()
+        .await
+        .with_context(|| "Failed to create BLE manager")?;
+    let adapter = get_adapter(manager, cli.ble_interface.clone()).await?;
 
-    let manager = Manager::new().await?;
-    let adapter = match cli.ble_interface {
-        Some(interface) => {
-            let adapters = manager.adapters().await?;
-            let mut c_adapter = Err(anyhow!("Adapter: `{}` not found", interface));
-            for adapter in adapters {
-                let name = adapter.adapter_info().await?;
-                if name.starts_with(&interface) {
-                    c_adapter = Ok(adapter);
-                    break;
-                }
-            }
+    Ok((cli, db_handler, adapter))
+}
 
-            c_adapter?
-        }
-        None => {
-            let adapters = manager.adapters().await?;
-            adapters
-                .into_iter()
-                .next()
-                .ok_or(anyhow!("No BLE adapters found"))?
-        }
-    };
+#[tokio::main]
+async fn main() -> Result<()> {
+    let (cli, db_handler, adapter) = initialize_stuff().await?;
 
     match cli.subcommand {
         OpenWhoopCommand::Scan => {
-            scan_command(adapter, None).await?;
+            let _device = port::download_history_scan_device(adapter, None, false).await?;
             Ok(())
         }
-        OpenWhoopCommand::DownloadHistory { whoop_addr } => {
-            let peripheral = scan_command(adapter, Some(whoop_addr)).await?;
-            let mut whoop = WhoopDevice::new(peripheral, db_handler);
-
-            whoop.connect().await?;
-            whoop.initialize().await?;
-
-            let result = whoop.sync_history().await;
-            if let Err(e) = result {
-                error!("{}", e);
+        OpenWhoopCommand::DownloadHistory {
+            device_identifier,
+            interactive,
+        } => {
+            let peripheral =
+                port::download_history_scan_device(adapter, device_identifier, interactive).await?;
+            let mut whoop_device = WhoopDevice::new(peripheral, db_handler);
+            whoop_device.connect().await?;
+            whoop_device.initialize().await?;
+            if let Err(e) = whoop_device.sync_history().await {
+                error!("Error during history sync: {}", e);
             }
-
-            loop {
-                if let Ok(true) = whoop.is_connected().await {
-                    whoop
-                        .send_command(WhoopPacket::exit_high_freq_sync())
-                        .await?;
-                    break;
-                } else {
-                    whoop.connect().await?;
-                    sleep(Duration::from_secs(1)).await;
-                }
+            while !whoop_device.is_connected().await.unwrap_or(false) {
+                whoop_device.connect().await?;
+                sleep(Duration::from_secs(1)).await;
             }
-
+            whoop_device
+                .send_command(WhoopPacket::exit_high_freq_sync())
+                .await?;
             Ok(())
         }
         OpenWhoopCommand::ReRun => {
             let whoop = OpenWhoop::new(db_handler.clone());
-            let mut id = 0;
+            let mut last_packet_id = 0;
             loop {
-                let packets = db_handler.get_packets(id).await?;
+                let packets = db_handler.get_packets(last_packet_id).await?;
                 if packets.is_empty() {
                     break;
                 }
-
                 for packet in packets {
-                    id = packet.id;
+                    last_packet_id = packet.id;
                     whoop.handle_packet(packet).await?;
                 }
-
-                println!("{}", id);
+                println!("Processed up to packet id: {}", last_packet_id);
             }
-
             Ok(())
         }
         OpenWhoopCommand::DetectEvents => {
@@ -128,44 +119,5 @@ async fn main() -> anyhow::Result<()> {
             whoop.detect_events().await?;
             Ok(())
         }
-    }
-}
-
-async fn scan_command(
-    adapter: Adapter,
-    peripheral_addr: Option<BDAddr>,
-) -> anyhow::Result<Peripheral> {
-    adapter
-        .start_scan(ScanFilter {
-            services: vec![WHOOP_SERVICE],
-        })
-        .await?;
-
-    loop {
-        let peripherals = adapter.peripherals().await?;
-
-        for peripheral in peripherals {
-            let Some(properties) = peripheral.properties().await? else {
-                continue;
-            };
-
-            if !properties.services.contains(&WHOOP_SERVICE) {
-                continue;
-            }
-
-            let Some(peripheral_addr) = peripheral_addr else {
-                println!("Address: {}", properties.address);
-                println!("Name: {:?}", properties.local_name);
-                println!("RSSI: {:?}", properties.rssi);
-                println!();
-                continue;
-            };
-
-            if properties.address == peripheral_addr {
-                return Ok(peripheral);
-            }
-        }
-
-        sleep(Duration::from_secs(1)).await;
     }
 }
