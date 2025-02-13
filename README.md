@@ -22,3 +22,11 @@ cargo run -r -- download-history
 - [ ] Mobile/Desktop app
 - [ ] Sp02 readings
 - [ ] Temperature readings
+
+### How to export your database to csv?
+After going through the previous steps you can execute:
+```sh
+cargo run -- export-to-csv --heart-rate heart_rate.csv --sleep-cycles sleep_cycles.csv
+```
+
+Make sure you already downloaded some database data. If not the csv will have no data under the headers.

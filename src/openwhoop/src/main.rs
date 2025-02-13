@@ -34,6 +34,12 @@ pub enum OpenWhoopCommand {
     ReRun,
     DetectEvents,
     SleepStats,
+    ExportToCsv {
+        #[arg(long)]
+        heart_rate: Option<String>,
+        #[arg(long)]
+        sleep_cycles: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -136,6 +142,20 @@ async fn main() -> anyhow::Result<()> {
             let analyzer = SleepConsistencyAnalyzer::new(sleep_records);
             let metrics = analyzer.calculate_consistency_metrics();
             println!("{:#?}", metrics);
+            Ok(())
+        }
+        OpenWhoopCommand::ExportToCsv {
+            heart_rate,
+            sleep_cycles,
+        } => {
+            if let Some(file_path) = heart_rate {
+                db_handler.export_heart_rate_to_csv(&file_path).await?;
+                println!("Exported heart rate data to {}", file_path);
+            }
+            if let Some(file_path) = sleep_cycles {
+                db_handler.export_sleep_cycles_to_csv(&file_path).await?;
+                println!("Exported sleep cycles data to {}", file_path);
+            }
             Ok(())
         }
     }

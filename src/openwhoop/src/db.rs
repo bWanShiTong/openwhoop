@@ -1,10 +1,13 @@
+use anyhow::Result;
 use chrono::{Local, NaiveDateTime, TimeZone};
+use csv::Writer;
 use db_entities::{packets, sleep_cycles};
 use migration::{Migrator, MigratorTrait, OnConflict};
 use sea_orm::{
     prelude::Expr, ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, Condition, Database,
     DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
+use std::fs::File;
 use uuid::Uuid;
 
 mod history;
@@ -138,6 +141,62 @@ impl DatabaseHandler {
             .exec(&self.db)
             .await?;
 
+        Ok(())
+    }
+    pub async fn export_heart_rate_to_csv(&self, file_path: &str) -> Result<()> {
+        let file = File::create(file_path)?;
+        let mut wtr = Writer::from_writer(file);
+
+        wtr.write_record(&["time", "bpm", "rr_intervals", "activity"])?;
+
+        let heart_rate_data = db_entities::heart_rate::Entity::find()
+            .order_by_desc(db_entities::heart_rate::Column::Time)
+            .all(&self.db)
+            .await?;
+
+        for record in heart_rate_data {
+            wtr.write_record(&[
+                record.time.to_string(),
+                record.bpm.to_string(),
+                record.rr_intervals,
+                record.activity.map(|a| a.to_string()).unwrap_or_default(),
+            ])?;
+        }
+
+        wtr.flush()?;
+        Ok(())
+    }
+
+    pub async fn export_sleep_cycles_to_csv(&self, file_path: &str) -> Result<()> {
+        let file = File::create(file_path)?;
+        let mut wtr = Writer::from_writer(file);
+
+        //Heders
+        wtr.write_record(&[
+            "sleep_id", "start", "end", "min_bpm", "max_bpm", "avg_bpm", "min_hrv", "max_hrv",
+            "avg_hrv",
+        ])?;
+
+        // Fetch sleep cycles data from the database
+        let sleep_cycles_data = db_entities::sleep_cycles::Entity::find()
+            .all(&self.db)
+            .await?;
+
+        for record in sleep_cycles_data {
+            wtr.write_record(&[
+                record.sleep_id.to_string(),
+                record.start.to_string(),
+                record.end.to_string(),
+                record.min_bpm.to_string(),
+                record.max_bpm.to_string(),
+                record.avg_bpm.to_string(),
+                record.min_hrv.to_string(),
+                record.max_hrv.to_string(),
+                record.avg_hrv.to_string(),
+            ])?;
+        }
+
+        wtr.flush()?;
         Ok(())
     }
 }
