@@ -15,3 +15,6 @@ pub mod algo;
 pub mod types;
 
 pub(crate) mod helpers;
+
+mod platform;
+pub use platform::Platform;

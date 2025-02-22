@@ -1792,6 +1792,7 @@ name = "openwhoop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "btleplug",
  "chrono",
  "clap 4.5.26",

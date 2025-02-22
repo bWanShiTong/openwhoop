@@ -3,9 +3,9 @@ extern crate log;
 
 use std::{str::FromStr, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use btleplug::{
-    api::{BDAddr, Central, Manager as _, Peripheral as _, ScanFilter},
+    api::{Central as _, Manager as _, Peripheral as _, ScanFilter},
     platform::{Adapter, Manager, Peripheral},
 };
 use chrono::{DateTime, Local, NaiveDateTime, NaiveTime, TimeDelta, Utc};
@@ -14,7 +14,7 @@ use dotenv::dotenv;
 use openwhoop::{
     algo::{ExerciseMetrics, SleepConsistencyAnalyzer},
     types::activities::{ActivityType, SearchActivityPeriods},
-    DatabaseHandler, OpenWhoop, WhoopDevice,
+    DatabaseHandler, OpenWhoop, Platform, WhoopDevice,
 };
 use tokio::time::sleep;
 use whoop::{constants::WHOOP_SERVICE, WhoopPacket};
@@ -38,10 +38,7 @@ pub enum OpenWhoopCommand {
     ///
     /// Download history data from whoop devices
     ///
-    DownloadHistory {
-        #[arg(long, env)]
-        whoop_addr: BDAddr,
-    },
+    DownloadHistory,
     ///
     /// Reruns the packet processing on stored packets
     /// This is used after new more of packets get handled
@@ -66,11 +63,7 @@ pub enum OpenWhoopCommand {
     ///
     /// Set alarm
     ///
-    SetAlarm {
-        #[arg(long, env)]
-        whoop_addr: BDAddr,
-        alarm_time: AlarmTime,
-    },
+    SetAlarm { alarm_time: AlarmTime },
 }
 
 #[tokio::main]
@@ -78,6 +71,8 @@ async fn main() -> anyhow::Result<()> {
     if let Err(error) = dotenv() {
         println!("{}", error);
     }
+
+    Platform::initialize()?;
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .filter_module("sqlx::query", log::LevelFilter::Off)
@@ -116,8 +111,9 @@ async fn main() -> anyhow::Result<()> {
             scan_command(adapter, None).await?;
             Ok(())
         }
-        OpenWhoopCommand::DownloadHistory { whoop_addr } => {
-            let peripheral = scan_command(adapter, Some(whoop_addr)).await?;
+        OpenWhoopCommand::DownloadHistory => {
+            let platform = Platform::from_env()?;
+            let peripheral = scan_command(adapter, Some(&platform)).await?;
             let mut whoop = WhoopDevice::new(peripheral, db_handler);
 
             whoop.connect().await?;
@@ -216,11 +212,9 @@ async fn main() -> anyhow::Result<()> {
             whoop.calculate_stress().await?;
             Ok(())
         }
-        OpenWhoopCommand::SetAlarm {
-            whoop_addr,
-            alarm_time,
-        } => {
-            let peripheral = scan_command(adapter, Some(whoop_addr)).await?;
+        OpenWhoopCommand::SetAlarm { alarm_time } => {
+            let platform = Platform::from_env()?;
+            let peripheral = scan_command(adapter, Some(&platform)).await?;
             let mut whoop = WhoopDevice::new(peripheral, db_handler);
             whoop.connect().await?;
 
@@ -234,15 +228,14 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn scan_command(
-    adapter: Adapter,
-    peripheral_addr: Option<BDAddr>,
-) -> anyhow::Result<Peripheral> {
+async fn scan_command(adapter: Adapter, platform: Option<&Platform>) -> Result<Peripheral> {
     adapter
         .start_scan(ScanFilter {
             services: vec![WHOOP_SERVICE],
         })
         .await?;
+
+    let start = tokio::time::Instant::now();
 
     loop {
         let peripherals = adapter.peripherals().await?;
@@ -256,16 +249,23 @@ async fn scan_command(
                 continue;
             }
 
-            let Some(peripheral_addr) = peripheral_addr else {
-                println!("Address: {}", properties.address);
-                println!("Name: {:?}", properties.local_name);
-                println!("RSSI: {:?}", properties.rssi);
-                println!();
-                continue;
-            };
+            let name = properties.local_name.clone();
 
-            if properties.address == peripheral_addr {
-                return Ok(peripheral);
+            match platform {
+                Some(p) if p.matches(&properties) => return Ok(peripheral),
+                None => {
+                    for line in Platform::format_device_info(&properties, &name) {
+                        println!("{}", line);
+                    }
+                    println!();
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(p) = platform {
+            if start.elapsed() >= Duration::from_secs(10) {
+                return Err(anyhow!("Device '{}' not found", p.to_string()));
             }
         }
 

@@ -6,6 +6,7 @@ default-run = "openwhoop"
 
 [dependencies]
 anyhow = "1.0.95"
+async-trait = "0.1.77"
 btleplug = "0.11.7"
 chrono = "0.4.39"
 clap = { version = "4.5.26", features = ["env", "derive"] }
