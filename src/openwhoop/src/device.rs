@@ -109,6 +109,37 @@ impl WhoopDevice {
         Ok(())
     }
 
+    pub async fn get_name(&mut self) -> anyhow::Result<()> {
+        let mut notifications = self.peripheral.notifications().await?;
+        self.send_command(WhoopPacket::get_name()).await?;
+
+        loop {
+            let notification = notifications.next();
+            let sleep = sleep(Duration::from_secs(10));
+
+            tokio::select! {
+                _ = sleep => {
+                    if self.on_sleep().await?{
+                        error!("Whoop disconnected");
+                        break;
+                    }
+                },
+                Some(notification) = notification => {
+                    // Print all notifications
+                    println!("Notification: {:?}", notification);
+                    // Print hex representation of the notification value
+                    println!("Hex data: {}", notification.value.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "));
+                    // decode received hex notification.value
+                    let packet = WhoopPacket::from_data(notification.value);
+                    // Print decoded packet
+                    println!("Packet: {:?}", packet);
+                    }
+                }
+            }
+
+        Ok(())
+    }
+
     async fn on_sleep(&mut self) -> anyhow::Result<bool> {
         let is_connected = self.peripheral.is_connected().await?;
         Ok(!is_connected)

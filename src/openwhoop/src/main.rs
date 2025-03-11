@@ -51,6 +51,12 @@ pub enum OpenWhoopCommand {
         whoop: DeviceId,
     },
     ///
+    /// Get the name of the whoop device
+    ///
+    GetName {
+        #[arg(long, env)]
+        whoop: DeviceId,
+    },
     /// Reruns the packet processing on stored packets
     /// This is used after new more of packets get handled
     ///
@@ -115,6 +121,32 @@ async fn main() -> anyhow::Result<()> {
             whoop.initialize().await?;
 
             let result = whoop.sync_history().await;
+            if let Err(e) = result {
+                error!("{}", e);
+            }
+
+            loop {
+                if let Ok(true) = whoop.is_connected().await {
+                    whoop
+                        .send_command(WhoopPacket::exit_high_freq_sync())
+                        .await?;
+                    break;
+                } else {
+                    whoop.connect().await?;
+                    sleep(Duration::from_secs(1)).await;
+                }
+            }
+
+            Ok(())
+        }
+        OpenWhoopCommand::GetName { whoop } => {
+            let peripheral = scan_command(adapter, Some(whoop)).await?;
+            let mut whoop = WhoopDevice::new(peripheral, db_handler);
+
+            whoop.connect().await?;
+            whoop.initialize().await?;
+
+            let result = whoop.get_name().await;
             if let Err(e) = result {
                 error!("{}", e);
             }
