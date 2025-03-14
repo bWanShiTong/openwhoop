@@ -88,4 +88,13 @@ impl WhoopPacket {
             data,
         )
     }
+
+    pub fn reboot() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::RebootStrap.as_u8(),
+            vec![0x00],
+        )
+    }
 }
