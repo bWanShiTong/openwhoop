@@ -110,8 +110,24 @@ impl WhoopDevice {
     }
 
     pub async fn get_name(&mut self) -> anyhow::Result<()> {
+        println!("Subscribing to notifications...");
         let mut notifications = self.peripheral.notifications().await?;
-        self.send_command(WhoopPacket::get_name()).await?;
+    
+        // Debug: Print all available characteristics
+        //let characteristics = self.peripheral.characteristics();
+        //println!("Available Characteristics: {:?}", characteristics);
+
+        // Debug: Print the raw command packet
+        let command = WhoopPacket::get_name();
+        println!("Sending GetName command: {:?}", command.framed_packet());
+
+        // Debug: Print the raw hex packet
+        println!("Sending GetName command in hex: {:?}", hex::encode(&command.framed_packet()));
+
+        self.send_command(command).await?;
+
+        // Debug: Reinitialize after sending the command
+        self.initialize().await?;
 
         loop {
             let notification = notifications.next();
@@ -126,7 +142,7 @@ impl WhoopDevice {
                 },
                 Some(notification) = notification => {
                     // Print all notifications
-                    println!("Notification: {:?}", notification);
+                    println!("Notification uuid: {:?}", notification.uuid);
                     // Print hex representation of the notification value
                     println!("Hex data: {}", notification.value.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "));
                     // decode received hex notification.value
@@ -136,6 +152,12 @@ impl WhoopDevice {
                     }
                 }
             }
+
+        Ok(())
+    }
+
+    pub async fn reboot(&mut self) -> anyhow::Result<()> {
+        self.send_command(WhoopPacket::reboot()).await?;
 
         Ok(())
     }

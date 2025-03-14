@@ -86,6 +86,13 @@ pub enum OpenWhoopCommand {
         alarm_time: AlarmTime,
     },
     ///
+    /// Reboot whoop
+    ///
+    Reboot {
+        #[arg(long, env)]
+        whoop: DeviceId,
+    },
+    ///
     /// Copy packets from one database into another
     ///
     Merge { from: String },
@@ -274,6 +281,20 @@ async fn main() -> anyhow::Result<()> {
             println!("Alarm time set for: {}", time.format("%Y-%m-%d %H:%M:%S"));
             Ok(())
         }
+
+        OpenWhoopCommand::Reboot { whoop } => {
+            let peripheral = scan_command(adapter, Some(whoop)).await?;
+            let mut whoop = WhoopDevice::new(peripheral, db_handler);
+            whoop.connect().await?;
+            whoop.initialize().await?;
+
+            let packet = WhoopPacket::reboot();
+            whoop.send_command(packet).await?;
+
+            println!("Reboot commmend sent");
+            Ok(())
+        }
+
         OpenWhoopCommand::Merge { from } => {
             let from_db = DatabaseHandler::new(from).await;
 
