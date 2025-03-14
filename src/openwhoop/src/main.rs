@@ -150,8 +150,8 @@ async fn main() -> anyhow::Result<()> {
             let peripheral = scan_command(adapter, Some(whoop)).await?;
             let mut whoop = WhoopDevice::new(peripheral, db_handler);
 
-            whoop.connect().await?;
-            whoop.initialize().await?;
+            whoop.connect_and_initialize().await?;
+            whoop.init().await?;
 
             let result = whoop.get_name().await;
             if let Err(e) = result {

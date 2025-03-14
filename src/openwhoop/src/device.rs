@@ -34,7 +34,37 @@ impl WhoopDevice {
         self.peripheral.discover_services().await?;
         Ok(())
     }
-
+    pub async fn connect_and_initialize(&mut self) -> anyhow::Result<()> {
+        self.peripheral.connect().await?;
+        self.peripheral.discover_services().await?;
+    
+        // Send the "wake-up" or initialization writes (replace with actual UUID)
+        self.send_handshake_requests().await?;
+    
+        Ok(())
+    }
+    
+    pub async fn send_handshake_requests(&mut self) -> anyhow::Result<()> {
+        let handshake_packets: Vec<Vec<u8>> = vec![
+            vec![0x02, 0x08, 0x00, 0x09, 0x00, 0x05, 0x00, 0x04, 0x00, 0x12, 0x16, 0x00, 0x01, 0x00],
+            vec![0x02, 0x08, 0x00, 0x09, 0x00, 0x05, 0x00, 0x04, 0x00, 0x12, 0x19, 0x00, 0x01, 0x00],
+            vec![0x02, 0x08, 0x00, 0x09, 0x00, 0x05, 0x00, 0x04, 0x00, 0x12, 0x1c, 0x00, 0x01, 0x00],
+            vec![0x02, 0x08, 0x00, 0x09, 0x00, 0x05, 0x00, 0x04, 0x00, 0x12, 0x13, 0x00, 0x01, 0x00],
+        ];
+    
+        for packet in handshake_packets {
+            self.peripheral
+                .write(
+                    &Self::create_char(CMD_TO_STRAP), // Use the correct characteristic
+                    &packet,
+                    WriteType::WithResponse,  // Make sure this is a "Write Request"
+                )
+                .await?;
+        }
+    
+        Ok(())
+    }
+    
     pub async fn is_connected(&mut self) -> anyhow::Result<bool> {
         let is_connected = self.peripheral.is_connected().await?;
         Ok(is_connected)
@@ -70,6 +100,15 @@ impl WhoopDevice {
         Ok(())
     }
 
+
+    pub async fn init(&mut self) -> anyhow::Result<()> {
+        self.subscribe(DATA_FROM_STRAP).await?;
+        self.subscribe(CMD_FROM_STRAP).await?;
+        self.subscribe(EVENTS_FROM_STRAP).await?;
+        self.subscribe(MEMFAULT).await?;
+
+        Ok(())
+    }
     pub async fn send_command(&mut self, packet: WhoopPacket) -> anyhow::Result<()> {
         let packet = packet.framed_packet();
         self.peripheral
