@@ -40,10 +40,11 @@ impl MigrationTrait for Migration {
 }
 
 #[derive(Iden)]
-enum HeartRate {
+pub enum HeartRate {
     Table,
     Id,
     Bpm,
     Time,
     RrIntervals,
+    ImuData,
 }

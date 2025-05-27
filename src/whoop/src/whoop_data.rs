@@ -5,8 +5,7 @@ use crate::{
 };
 
 mod history;
-use history::ImuSample;
-pub use history::{Activity, HistoryReading, ParsedHistoryReading};
+pub use history::{Activity, HistoryReading, ImuSample, ParsedHistoryReading};
 
 #[derive(Debug, PartialEq)]
 pub enum WhoopData {
@@ -159,7 +158,7 @@ impl WhoopData {
             bpm,
             rr,
             activity,
-            imu_data: None,
+            imu_data: Vec::new(),
         }))
     }
 
@@ -227,9 +226,9 @@ impl WhoopData {
         let gyr_y_raw = read_imu_axis_data(&packet, GYR_Y_OFFSET)?;
         let gyr_z_raw = read_imu_axis_data(&packet, GYR_Z_OFFSET)?;
 
-        let mut imu_samples_vec: Vec<ImuSample> = Vec::with_capacity(N_SAMPLES_IMU);
+        let mut imu_data: Vec<ImuSample> = Vec::with_capacity(N_SAMPLES_IMU);
         for i in 0..N_SAMPLES_IMU {
-            imu_samples_vec.push(ImuSample {
+            imu_data.push(ImuSample {
                 acc_x_g: f32::from(acc_x_raw[i]) / ACC_SENS,
                 acc_y_g: f32::from(acc_y_raw[i]) / ACC_SENS,
                 acc_z_g: f32::from(acc_z_raw[i]) / ACC_SENS,
@@ -245,7 +244,7 @@ impl WhoopData {
             bpm,
             rr,
             activity,
-            imu_data: Some(imu_samples_vec),
+            imu_data,
         }))
     }
 
@@ -287,815 +286,813 @@ mod tests {
         assert_eq!(
             data,
             WhoopData::HistoryReading(HistoryReading {
-                unix: 1748326148760,
+                unix: 1748326124000,
                 bpm: 62,
                 rr: vec![837],
                 activity: 0,
-                imu_data: Some(
-                    [
-                        ImuSample {
-                            acc_x_g: -2.184,
-                            acc_y_g: 0.41546667,
-                            acc_z_g: 0.50986665,
-                            gyr_x_dps: 35.733334,
-                            gyr_y_dps: -14.866667,
-                            gyr_z_dps: 0.53333336
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0336,
-                            acc_y_g: 0.5733333,
-                            acc_z_g: 0.47893333,
-                            gyr_x_dps: 46.2,
-                            gyr_y_dps: -15.733334,
-                            gyr_z_dps: 0.53333336
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0224,
-                            acc_y_g: 0.64266664,
-                            acc_z_g: 0.592,
-                            gyr_x_dps: 19.866667,
-                            gyr_y_dps: -15.533334,
-                            gyr_z_dps: 1.6
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0058668,
-                            acc_y_g: 0.43946666,
-                            acc_z_g: 0.8085333,
-                            gyr_x_dps: 31.333334,
-                            gyr_y_dps: -13.133333,
-                            gyr_z_dps: 3.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0293334,
-                            acc_y_g: 0.528,
-                            acc_z_g: 0.7296,
-                            gyr_x_dps: 13.866667,
-                            gyr_y_dps: -9.866667,
-                            gyr_z_dps: 3.9333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9301333,
-                            acc_y_g: 0.27573332,
-                            acc_z_g: 0.8528,
-                            gyr_x_dps: 16.6,
-                            gyr_y_dps: -6.866667,
-                            gyr_z_dps: 3.8666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0682666,
-                            acc_y_g: 0.4784,
-                            acc_z_g: 0.82986665,
-                            gyr_x_dps: 2.9333334,
-                            gyr_y_dps: -4.266667,
-                            gyr_z_dps: 3.2666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0570667,
-                            acc_y_g: 0.41173333,
-                            acc_z_g: 0.9525333,
-                            gyr_x_dps: 21.266666,
-                            gyr_y_dps: -1.9333333,
-                            gyr_z_dps: 2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.176,
-                            acc_y_g: 0.58613336,
-                            acc_z_g: 0.78186667,
-                            gyr_x_dps: 19.0,
-                            gyr_y_dps: -16.933332,
-                            gyr_z_dps: 1.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0202668,
-                            acc_y_g: 0.59786665,
-                            acc_z_g: 0.7312,
-                            gyr_x_dps: 30.866667,
-                            gyr_y_dps: 2.0,
-                            gyr_z_dps: 0.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0010667,
-                            acc_y_g: 0.5968,
-                            acc_z_g: 0.69386667,
-                            gyr_x_dps: 7.4666667,
-                            gyr_y_dps: 3.6,
-                            gyr_z_dps: 0.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9914666,
-                            acc_y_g: 0.6096,
-                            acc_z_g: 0.77493334,
-                            gyr_x_dps: 1.5333333,
-                            gyr_y_dps: 4.8,
-                            gyr_z_dps: 1.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0176,
-                            acc_y_g: 0.5936,
-                            acc_z_g: 0.5818667,
-                            gyr_x_dps: 14.266666,
-                            gyr_y_dps: 5.0666666,
-                            gyr_z_dps: 1.4
-                        },
-                        ImuSample {
-                            acc_x_g: -2.04,
-                            acc_y_g: 0.5648,
-                            acc_z_g: 0.6581333,
-                            gyr_x_dps: -6.2,
-                            gyr_y_dps: 5.0666666,
-                            gyr_z_dps: 1.6
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0346668,
-                            acc_y_g: 0.56853336,
-                            acc_z_g: 0.47893333,
-                            gyr_x_dps: -7.9333334,
-                            gyr_y_dps: 4.866667,
-                            gyr_z_dps: 2.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0192,
-                            acc_y_g: 0.5584,
-                            acc_z_g: 0.45066667,
-                            gyr_x_dps: -7.866667,
-                            gyr_y_dps: 4.5333333,
-                            gyr_z_dps: 2.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0037334,
-                            acc_y_g: 0.6634667,
-                            acc_z_g: 0.4416,
-                            gyr_x_dps: -6.0666666,
-                            gyr_y_dps: 3.7333333,
-                            gyr_z_dps: 1.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9914666,
-                            acc_y_g: 0.5269333,
-                            acc_z_g: 0.44906667,
-                            gyr_x_dps: -2.6666667,
-                            gyr_y_dps: 2.8,
-                            gyr_z_dps: 0.93333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9856,
-                            acc_y_g: 0.54506665,
-                            acc_z_g: 0.44746667,
-                            gyr_x_dps: -15.666667,
-                            gyr_y_dps: 2.2,
-                            gyr_z_dps: 0.33333334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0064,
-                            acc_y_g: 0.432,
-                            acc_z_g: 0.44266668,
-                            gyr_x_dps: 4.8,
-                            gyr_y_dps: 1.7333333,
-                            gyr_z_dps: 16.533333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0298667,
-                            acc_y_g: 0.576,
-                            acc_z_g: 0.44,
-                            gyr_x_dps: 6.0,
-                            gyr_y_dps: 1.1333333,
-                            gyr_z_dps: -1.4666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9258667,
-                            acc_y_g: 0.57173336,
-                            acc_z_g: 0.4384,
-                            gyr_x_dps: 6.4,
-                            gyr_y_dps: 0.33333334,
-                            gyr_z_dps: -2.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0858667,
-                            acc_y_g: 0.5616,
-                            acc_z_g: 0.45653334,
-                            gyr_x_dps: 8.0,
-                            gyr_y_dps: 16.466667,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0981333,
-                            acc_y_g: 0.552,
-                            acc_z_g: 0.4928,
-                            gyr_x_dps: 10.933333,
-                            gyr_y_dps: -1.6,
-                            gyr_z_dps: -3.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1104,
-                            acc_y_g: 0.5578667,
-                            acc_z_g: 0.5322667,
-                            gyr_x_dps: 14.333333,
-                            gyr_y_dps: -2.2,
-                            gyr_z_dps: -5.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1152,
-                            acc_y_g: 0.5701333,
-                            acc_z_g: 0.42453334,
-                            gyr_x_dps: 0.06666667,
-                            gyr_y_dps: -2.5333333,
-                            gyr_z_dps: -6.733333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1162667,
-                            acc_y_g: 0.5712,
-                            acc_z_g: 0.58133334,
-                            gyr_x_dps: 18.666666,
-                            gyr_y_dps: -2.9333334,
-                            gyr_z_dps: -8.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1162667,
-                            acc_y_g: 0.55146664,
-                            acc_z_g: 0.6085333,
-                            gyr_x_dps: 19.466667,
-                            gyr_y_dps: -3.4,
-                            gyr_z_dps: -9.466666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1082666,
-                            acc_y_g: 0.65386665,
-                            acc_z_g: 0.6288,
-                            gyr_x_dps: 19.733334,
-                            gyr_y_dps: -3.4,
-                            gyr_z_dps: -10.466666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.088,
-                            acc_y_g: 0.5056,
-                            acc_z_g: 0.6234667,
-                            gyr_x_dps: 19.933332,
-                            gyr_y_dps: -2.8,
-                            gyr_z_dps: -11.333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0821333,
-                            acc_y_g: 0.5104,
-                            acc_z_g: 0.6,
-                            gyr_x_dps: 19.2,
-                            gyr_y_dps: -2.5333333,
-                            gyr_z_dps: -12.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.104,
-                            acc_y_g: 0.5290667,
-                            acc_z_g: 0.5824,
-                            gyr_x_dps: 33.733334,
-                            gyr_y_dps: -2.8,
-                            gyr_z_dps: -13.066667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1274667,
-                            acc_y_g: 0.52,
-                            acc_z_g: 0.6,
-                            gyr_x_dps: 12.266666,
-                            gyr_y_dps: -3.7333333,
-                            gyr_z_dps: -13.733334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1397333,
-                            acc_y_g: 0.4688,
-                            acc_z_g: 0.61973333,
-                            gyr_x_dps: 4.866667,
-                            gyr_y_dps: -5.733333,
-                            gyr_z_dps: -13.8
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1130667,
-                            acc_y_g: 0.5424,
-                            acc_z_g: 0.58986664,
-                            gyr_x_dps: 11.8,
-                            gyr_y_dps: -7.0,
-                            gyr_z_dps: -12.6
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0949333,
-                            acc_y_g: 0.37013334,
-                            acc_z_g: 0.5824,
-                            gyr_x_dps: -14.533334,
-                            gyr_y_dps: -7.266667,
-                            gyr_z_dps: -11.133333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0976,
-                            acc_y_g: 0.34933335,
-                            acc_z_g: 0.57226664,
-                            gyr_x_dps: -3.3333333,
-                            gyr_y_dps: -7.6666665,
-                            gyr_z_dps: -10.0
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0992,
-                            acc_y_g: 0.31413335,
-                            acc_z_g: 0.54933333,
-                            gyr_x_dps: -22.4,
-                            gyr_y_dps: -8.4,
-                            gyr_z_dps: -9.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0848,
-                            acc_y_g: 0.28266665,
-                            acc_z_g: 0.6736,
-                            gyr_x_dps: -20.466667,
-                            gyr_y_dps: -8.666667,
-                            gyr_z_dps: -8.6
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0810666,
-                            acc_y_g: 0.40693334,
-                            acc_z_g: 0.5290667,
-                            gyr_x_dps: -32.666668,
-                            gyr_y_dps: -9.2,
-                            gyr_z_dps: -8.066667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0848,
-                            acc_y_g: 0.26346666,
-                            acc_z_g: 0.5061333,
-                            gyr_x_dps: -8.533334,
-                            gyr_y_dps: -9.933333,
-                            gyr_z_dps: -7.733333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0842667,
-                            acc_y_g: 0.15466666,
-                            acc_z_g: 0.4928,
-                            gyr_x_dps: -0.6,
-                            gyr_y_dps: -10.533334,
-                            gyr_z_dps: -7.4
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0565333,
-                            acc_y_g: 0.3888,
-                            acc_z_g: 0.50186664,
-                            gyr_x_dps: -11.6,
-                            gyr_y_dps: -10.866667,
-                            gyr_z_dps: -7.133333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1712,
-                            acc_y_g: 0.3392,
-                            acc_z_g: 0.4144,
-                            gyr_x_dps: 7.5333333,
-                            gyr_y_dps: -10.733334,
-                            gyr_z_dps: -7.4
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0325334,
-                            acc_y_g: 0.48053333,
-                            acc_z_g: 0.57813334,
-                            gyr_x_dps: 6.5333333,
-                            gyr_y_dps: -10.0,
-                            gyr_z_dps: -7.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.04,
-                            acc_y_g: 0.4944,
-                            acc_z_g: 0.60426664,
-                            gyr_x_dps: 4.9333334,
-                            gyr_y_dps: -9.333333,
-                            gyr_z_dps: -6.9333334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0416,
-                            acc_y_g: 0.47946668,
-                            acc_z_g: 0.60426664,
-                            gyr_x_dps: 2.4666667,
-                            gyr_y_dps: -9.066667,
-                            gyr_z_dps: -6.266667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0474668,
-                            acc_y_g: 0.49066666,
-                            acc_z_g: 0.62186664,
-                            gyr_x_dps: 0.8,
-                            gyr_y_dps: -9.133333,
-                            gyr_z_dps: -5.6666665
-                        },
-                        ImuSample {
-                            acc_x_g: -1.912,
-                            acc_y_g: 0.4992,
-                            acc_z_g: 0.6384,
-                            gyr_x_dps: 16.0,
-                            gyr_y_dps: -9.2,
-                            gyr_z_dps: -5.6666665
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0602667,
-                            acc_y_g: 0.49066666,
-                            acc_z_g: 0.6501333,
-                            gyr_x_dps: -3.4666667,
-                            gyr_y_dps: -9.066667,
-                            gyr_z_dps: -6.0
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0816,
-                            acc_y_g: 0.46186668,
-                            acc_z_g: 0.6736,
-                            gyr_x_dps: -4.6666665,
-                            gyr_y_dps: -9.066667,
-                            gyr_z_dps: -6.6666665
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1002667,
-                            acc_y_g: 0.41813335,
-                            acc_z_g: 0.67786664,
-                            gyr_x_dps: -3.8666666,
-                            gyr_y_dps: -9.133333,
-                            gyr_z_dps: -7.4666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1136,
-                            acc_y_g: 0.42613333,
-                            acc_z_g: 0.6288,
-                            gyr_x_dps: -1.6666666,
-                            gyr_y_dps: -9.733334,
-                            gyr_z_dps: -8.333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0970666,
-                            acc_y_g: 0.4336,
-                            acc_z_g: 0.60426664,
-                            gyr_x_dps: -15.8,
-                            gyr_y_dps: -10.4,
-                            gyr_z_dps: -9.533334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0693333,
-                            acc_y_g: 0.424,
-                            acc_z_g: 0.64533335,
-                            gyr_x_dps: 2.0666666,
-                            gyr_y_dps: -11.0,
-                            gyr_z_dps: -10.666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0485334,
-                            acc_y_g: 0.41173333,
-                            acc_z_g: 0.6816,
-                            gyr_x_dps: 1.1333333,
-                            gyr_y_dps: -11.133333,
-                            gyr_z_dps: -11.333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1498666,
-                            acc_y_g: 0.41973335,
-                            acc_z_g: 0.5872,
-                            gyr_x_dps: 16.333334,
-                            gyr_y_dps: -10.6,
-                            gyr_z_dps: -11.866667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0069335,
-                            acc_y_g: 0.42293334,
-                            acc_z_g: 0.74453336,
-                            gyr_x_dps: -4.0666666,
-                            gyr_y_dps: -9.733334,
-                            gyr_z_dps: -11.866667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0005333,
-                            acc_y_g: 0.42026666,
-                            acc_z_g: 0.7589333,
-                            gyr_x_dps: -8.066667,
-                            gyr_y_dps: -8.8,
-                            gyr_z_dps: -11.133333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0005333,
-                            acc_y_g: 0.5312,
-                            acc_z_g: 0.7376,
-                            gyr_x_dps: -13.6,
-                            gyr_y_dps: -7.5333333,
-                            gyr_z_dps: -10.066667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0149333,
-                            acc_y_g: 0.40586665,
-                            acc_z_g: 0.7317333,
-                            gyr_x_dps: -3.6,
-                            gyr_y_dps: -6.133333,
-                            gyr_z_dps: -9.133333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0336,
-                            acc_y_g: 0.30773333,
-                            acc_z_g: 0.73546666,
-                            gyr_x_dps: -30.2,
-                            gyr_y_dps: -5.0666666,
-                            gyr_z_dps: -8.133333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0362666,
-                            acc_y_g: 0.48373333,
-                            acc_z_g: 0.7392,
-                            gyr_x_dps: -25.133333,
-                            gyr_y_dps: -4.0666666,
-                            gyr_z_dps: -7.266667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9184,
-                            acc_y_g: 0.4432,
-                            acc_z_g: 0.744,
-                            gyr_x_dps: -34.866665,
-                            gyr_y_dps: -3.1333334,
-                            gyr_z_dps: -6.6666665
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0704,
-                            acc_y_g: 0.44106665,
-                            acc_z_g: 0.72746664,
-                            gyr_x_dps: -53.4,
-                            gyr_y_dps: -2.4666667,
-                            gyr_z_dps: -6.266667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0650666,
-                            acc_y_g: 0.36373332,
-                            acc_z_g: 0.71573335,
-                            gyr_x_dps: -63.866665,
-                            gyr_y_dps: -2.2666667,
-                            gyr_z_dps: -6.266667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0645332,
-                            acc_y_g: 0.25173333,
-                            acc_z_g: 0.6965333,
-                            gyr_x_dps: -36.333332,
-                            gyr_y_dps: -2.1333334,
-                            gyr_z_dps: -7.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0794666,
-                            acc_y_g: 0.2544,
-                            acc_z_g: 0.69173336,
-                            gyr_x_dps: -43.533333,
-                            gyr_y_dps: -1.8,
-                            gyr_z_dps: -8.066667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0773335,
-                            acc_y_g: 0.24213333,
-                            acc_z_g: 0.68266666,
-                            gyr_x_dps: -18.8,
-                            gyr_y_dps: -1.4,
-                            gyr_z_dps: -8.266666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0693333,
-                            acc_y_g: 0.2448,
-                            acc_z_g: 0.8032,
-                            gyr_x_dps: -29.8,
-                            gyr_y_dps: -0.93333334,
-                            gyr_z_dps: -7.866667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0517333,
-                            acc_y_g: 0.25013334,
-                            acc_z_g: 0.67786664,
-                            gyr_x_dps: -8.866667,
-                            gyr_y_dps: -0.8,
-                            gyr_z_dps: -7.4666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1744,
-                            acc_y_g: 0.2528,
-                            acc_z_g: 0.5568,
-                            gyr_x_dps: -6.733333,
-                            gyr_y_dps: -1.0666667,
-                            gyr_z_dps: -7.133333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0346668,
-                            acc_y_g: 0.2528,
-                            acc_z_g: 0.72213334,
-                            gyr_x_dps: -6.2,
-                            gyr_y_dps: -1.4666667,
-                            gyr_z_dps: -6.6666665
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0341334,
-                            acc_y_g: 0.26186666,
-                            acc_z_g: 0.74986666,
-                            gyr_x_dps: -7.8,
-                            gyr_y_dps: -1.6,
-                            gyr_z_dps: -5.866667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0421333,
-                            acc_y_g: 0.2592,
-                            acc_z_g: 0.76053333,
-                            gyr_x_dps: -9.6,
-                            gyr_y_dps: -1.4666667,
-                            gyr_z_dps: -5.133333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9216,
-                            acc_y_g: 0.21226667,
-                            acc_z_g: 0.75093335,
-                            gyr_x_dps: -10.0,
-                            gyr_y_dps: -1.5333333,
-                            gyr_z_dps: -4.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0677333,
-                            acc_y_g: 0.1776,
-                            acc_z_g: 0.7285333,
-                            gyr_x_dps: -8.666667,
-                            gyr_y_dps: -1.8,
-                            gyr_z_dps: -3.9333334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0704,
-                            acc_y_g: 0.20053333,
-                            acc_z_g: 0.72213334,
-                            gyr_x_dps: -6.3333335,
-                            gyr_y_dps: -2.0666666,
-                            gyr_z_dps: -3.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0709333,
-                            acc_y_g: 0.2368,
-                            acc_z_g: 0.71306664,
-                            gyr_x_dps: -5.2,
-                            gyr_y_dps: -2.0,
-                            gyr_z_dps: -3.3333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0730667,
-                            acc_y_g: 0.272,
-                            acc_z_g: 0.8165333,
-                            gyr_x_dps: -4.9333334,
-                            gyr_y_dps: -1.7333333,
-                            gyr_z_dps: -3.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0768,
-                            acc_y_g: 0.1376,
-                            acc_z_g: 0.5488,
-                            gyr_x_dps: -4.9333334,
-                            gyr_y_dps: -1.8666667,
-                            gyr_z_dps: -2.8666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0661333,
-                            acc_y_g: 0.37546667,
-                            acc_z_g: 0.70346665,
-                            gyr_x_dps: -5.5333333,
-                            gyr_y_dps: -2.2,
-                            gyr_z_dps: -2.4
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0512,
-                            acc_y_g: 0.2336,
-                            acc_z_g: 0.70133334,
-                            gyr_x_dps: -6.3333335,
-                            gyr_y_dps: -2.1333334,
-                            gyr_z_dps: -1.6666666
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0538666,
-                            acc_y_g: 0.2384,
-                            acc_z_g: 0.72,
-                            gyr_x_dps: -6.733333,
-                            gyr_y_dps: -1.6666666,
-                            gyr_z_dps: -1.1333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0672,
-                            acc_y_g: 0.23786667,
-                            acc_z_g: 0.72,
-                            gyr_x_dps: -5.6,
-                            gyr_y_dps: -1.2666667,
-                            gyr_z_dps: -0.93333334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0672,
-                            acc_y_g: 0.2368,
-                            acc_z_g: 0.72,
-                            gyr_x_dps: -3.1333334,
-                            gyr_y_dps: -1.3333334,
-                            gyr_z_dps: -0.93333334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0618668,
-                            acc_y_g: 0.2576,
-                            acc_z_g: 0.6906667,
-                            gyr_x_dps: -0.53333336,
-                            gyr_y_dps: -1.3333334,
-                            gyr_z_dps: -0.8
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0618668,
-                            acc_y_g: 0.1472,
-                            acc_z_g: 0.8085333,
-                            gyr_x_dps: -16.333334,
-                            gyr_y_dps: -1.4666667,
-                            gyr_z_dps: -0.6
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0522666,
-                            acc_y_g: 0.4048,
-                            acc_z_g: 0.568,
-                            gyr_x_dps: 16.933332,
-                            gyr_y_dps: -2.0666666,
-                            gyr_z_dps: -0.33333334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0544,
-                            acc_y_g: 0.2464,
-                            acc_z_g: 0.68906665,
-                            gyr_x_dps: -1.8,
-                            gyr_y_dps: -3.0,
-                            gyr_z_dps: -16.6
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0586667,
-                            acc_y_g: 0.22453333,
-                            acc_z_g: 0.81013334,
-                            gyr_x_dps: -2.0,
-                            gyr_y_dps: -3.6666667,
-                            gyr_z_dps: 1.1333333
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0544,
-                            acc_y_g: 0.2544,
-                            acc_z_g: 0.552,
-                            gyr_x_dps: -1.3333334,
-                            gyr_y_dps: -4.2,
-                            gyr_z_dps: 1.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0613334,
-                            acc_y_g: 0.23893334,
-                            acc_z_g: 0.7141333,
-                            gyr_x_dps: -0.8666667,
-                            gyr_y_dps: -4.9333334,
-                            gyr_z_dps: 0.93333334
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1834667,
-                            acc_y_g: 0.21013333,
-                            acc_z_g: 0.7370667,
-                            gyr_x_dps: -0.53333336,
-                            gyr_y_dps: -5.4666667,
-                            gyr_z_dps: 1.2
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0416,
-                            acc_y_g: 0.18933333,
-                            acc_z_g: 0.75093335,
-                            gyr_x_dps: -15.733334,
-                            gyr_y_dps: -5.5333333,
-                            gyr_z_dps: 1.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.9146667,
-                            acc_y_g: 0.21013333,
-                            acc_z_g: 0.75413334,
-                            gyr_x_dps: 4.266667,
-                            gyr_y_dps: -5.6,
-                            gyr_z_dps: 1.4
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0677333,
-                            acc_y_g: 0.232,
-                            acc_z_g: 0.7578667,
-                            gyr_x_dps: 7.2,
-                            gyr_y_dps: -5.8,
-                            gyr_z_dps: 0.8666667
-                        },
-                        ImuSample {
-                            acc_x_g: -2.0778666,
-                            acc_y_g: 0.2576,
-                            acc_z_g: 0.7434667,
-                            gyr_x_dps: 9.533334,
-                            gyr_y_dps: -5.6,
-                            gyr_z_dps: 0.4
-                        },
-                        ImuSample {
-                            acc_x_g: -2.1109333,
-                            acc_y_g: 0.24746667,
-                            acc_z_g: 0.6853333,
-                            gyr_x_dps: 2.8666666,
-                            gyr_y_dps: -15.266666,
-                            gyr_z_dps: 0.0
-                        },
-                        ImuSample {
-                            acc_x_g: 0.54293334,
-                            acc_y_g: 0.51306665,
-                            acc_z_g: 0.19093333,
-                            gyr_x_dps: -14.6,
-                            gyr_y_dps: 1.3333334,
-                            gyr_z_dps: 17.066668
-                        }
-                    ]
-                    .to_vec()
-                )
+                imu_data: [
+                    ImuSample {
+                        acc_x_g: -2.184,
+                        acc_y_g: 0.41546667,
+                        acc_z_g: 0.50986665,
+                        gyr_x_dps: 35.733334,
+                        gyr_y_dps: -14.866667,
+                        gyr_z_dps: 0.53333336
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0336,
+                        acc_y_g: 0.5733333,
+                        acc_z_g: 0.47893333,
+                        gyr_x_dps: 46.2,
+                        gyr_y_dps: -15.733334,
+                        gyr_z_dps: 0.53333336
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0224,
+                        acc_y_g: 0.64266664,
+                        acc_z_g: 0.592,
+                        gyr_x_dps: 19.866667,
+                        gyr_y_dps: -15.533334,
+                        gyr_z_dps: 1.6
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0058668,
+                        acc_y_g: 0.43946666,
+                        acc_z_g: 0.8085333,
+                        gyr_x_dps: 31.333334,
+                        gyr_y_dps: -13.133333,
+                        gyr_z_dps: 3.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0293334,
+                        acc_y_g: 0.528,
+                        acc_z_g: 0.7296,
+                        gyr_x_dps: 13.866667,
+                        gyr_y_dps: -9.866667,
+                        gyr_z_dps: 3.9333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9301333,
+                        acc_y_g: 0.27573332,
+                        acc_z_g: 0.8528,
+                        gyr_x_dps: 16.6,
+                        gyr_y_dps: -6.866667,
+                        gyr_z_dps: 3.8666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0682666,
+                        acc_y_g: 0.4784,
+                        acc_z_g: 0.82986665,
+                        gyr_x_dps: 2.9333334,
+                        gyr_y_dps: -4.266667,
+                        gyr_z_dps: 3.2666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0570667,
+                        acc_y_g: 0.41173333,
+                        acc_z_g: 0.9525333,
+                        gyr_x_dps: 21.266666,
+                        gyr_y_dps: -1.9333333,
+                        gyr_z_dps: 2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.176,
+                        acc_y_g: 0.58613336,
+                        acc_z_g: 0.78186667,
+                        gyr_x_dps: 19.0,
+                        gyr_y_dps: -16.933332,
+                        gyr_z_dps: 1.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0202668,
+                        acc_y_g: 0.59786665,
+                        acc_z_g: 0.7312,
+                        gyr_x_dps: 30.866667,
+                        gyr_y_dps: 2.0,
+                        gyr_z_dps: 0.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0010667,
+                        acc_y_g: 0.5968,
+                        acc_z_g: 0.69386667,
+                        gyr_x_dps: 7.4666667,
+                        gyr_y_dps: 3.6,
+                        gyr_z_dps: 0.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9914666,
+                        acc_y_g: 0.6096,
+                        acc_z_g: 0.77493334,
+                        gyr_x_dps: 1.5333333,
+                        gyr_y_dps: 4.8,
+                        gyr_z_dps: 1.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0176,
+                        acc_y_g: 0.5936,
+                        acc_z_g: 0.5818667,
+                        gyr_x_dps: 14.266666,
+                        gyr_y_dps: 5.0666666,
+                        gyr_z_dps: 1.4
+                    },
+                    ImuSample {
+                        acc_x_g: -2.04,
+                        acc_y_g: 0.5648,
+                        acc_z_g: 0.6581333,
+                        gyr_x_dps: -6.2,
+                        gyr_y_dps: 5.0666666,
+                        gyr_z_dps: 1.6
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0346668,
+                        acc_y_g: 0.56853336,
+                        acc_z_g: 0.47893333,
+                        gyr_x_dps: -7.9333334,
+                        gyr_y_dps: 4.866667,
+                        gyr_z_dps: 2.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0192,
+                        acc_y_g: 0.5584,
+                        acc_z_g: 0.45066667,
+                        gyr_x_dps: -7.866667,
+                        gyr_y_dps: 4.5333333,
+                        gyr_z_dps: 2.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0037334,
+                        acc_y_g: 0.6634667,
+                        acc_z_g: 0.4416,
+                        gyr_x_dps: -6.0666666,
+                        gyr_y_dps: 3.7333333,
+                        gyr_z_dps: 1.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9914666,
+                        acc_y_g: 0.5269333,
+                        acc_z_g: 0.44906667,
+                        gyr_x_dps: -2.6666667,
+                        gyr_y_dps: 2.8,
+                        gyr_z_dps: 0.93333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9856,
+                        acc_y_g: 0.54506665,
+                        acc_z_g: 0.44746667,
+                        gyr_x_dps: -15.666667,
+                        gyr_y_dps: 2.2,
+                        gyr_z_dps: 0.33333334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0064,
+                        acc_y_g: 0.432,
+                        acc_z_g: 0.44266668,
+                        gyr_x_dps: 4.8,
+                        gyr_y_dps: 1.7333333,
+                        gyr_z_dps: 16.533333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0298667,
+                        acc_y_g: 0.576,
+                        acc_z_g: 0.44,
+                        gyr_x_dps: 6.0,
+                        gyr_y_dps: 1.1333333,
+                        gyr_z_dps: -1.4666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9258667,
+                        acc_y_g: 0.57173336,
+                        acc_z_g: 0.4384,
+                        gyr_x_dps: 6.4,
+                        gyr_y_dps: 0.33333334,
+                        gyr_z_dps: -2.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0858667,
+                        acc_y_g: 0.5616,
+                        acc_z_g: 0.45653334,
+                        gyr_x_dps: 8.0,
+                        gyr_y_dps: 16.466667,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0981333,
+                        acc_y_g: 0.552,
+                        acc_z_g: 0.4928,
+                        gyr_x_dps: 10.933333,
+                        gyr_y_dps: -1.6,
+                        gyr_z_dps: -3.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1104,
+                        acc_y_g: 0.5578667,
+                        acc_z_g: 0.5322667,
+                        gyr_x_dps: 14.333333,
+                        gyr_y_dps: -2.2,
+                        gyr_z_dps: -5.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1152,
+                        acc_y_g: 0.5701333,
+                        acc_z_g: 0.42453334,
+                        gyr_x_dps: 0.06666667,
+                        gyr_y_dps: -2.5333333,
+                        gyr_z_dps: -6.733333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1162667,
+                        acc_y_g: 0.5712,
+                        acc_z_g: 0.58133334,
+                        gyr_x_dps: 18.666666,
+                        gyr_y_dps: -2.9333334,
+                        gyr_z_dps: -8.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1162667,
+                        acc_y_g: 0.55146664,
+                        acc_z_g: 0.6085333,
+                        gyr_x_dps: 19.466667,
+                        gyr_y_dps: -3.4,
+                        gyr_z_dps: -9.466666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1082666,
+                        acc_y_g: 0.65386665,
+                        acc_z_g: 0.6288,
+                        gyr_x_dps: 19.733334,
+                        gyr_y_dps: -3.4,
+                        gyr_z_dps: -10.466666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.088,
+                        acc_y_g: 0.5056,
+                        acc_z_g: 0.6234667,
+                        gyr_x_dps: 19.933332,
+                        gyr_y_dps: -2.8,
+                        gyr_z_dps: -11.333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0821333,
+                        acc_y_g: 0.5104,
+                        acc_z_g: 0.6,
+                        gyr_x_dps: 19.2,
+                        gyr_y_dps: -2.5333333,
+                        gyr_z_dps: -12.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.104,
+                        acc_y_g: 0.5290667,
+                        acc_z_g: 0.5824,
+                        gyr_x_dps: 33.733334,
+                        gyr_y_dps: -2.8,
+                        gyr_z_dps: -13.066667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1274667,
+                        acc_y_g: 0.52,
+                        acc_z_g: 0.6,
+                        gyr_x_dps: 12.266666,
+                        gyr_y_dps: -3.7333333,
+                        gyr_z_dps: -13.733334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1397333,
+                        acc_y_g: 0.4688,
+                        acc_z_g: 0.61973333,
+                        gyr_x_dps: 4.866667,
+                        gyr_y_dps: -5.733333,
+                        gyr_z_dps: -13.8
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1130667,
+                        acc_y_g: 0.5424,
+                        acc_z_g: 0.58986664,
+                        gyr_x_dps: 11.8,
+                        gyr_y_dps: -7.0,
+                        gyr_z_dps: -12.6
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0949333,
+                        acc_y_g: 0.37013334,
+                        acc_z_g: 0.5824,
+                        gyr_x_dps: -14.533334,
+                        gyr_y_dps: -7.266667,
+                        gyr_z_dps: -11.133333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0976,
+                        acc_y_g: 0.34933335,
+                        acc_z_g: 0.57226664,
+                        gyr_x_dps: -3.3333333,
+                        gyr_y_dps: -7.6666665,
+                        gyr_z_dps: -10.0
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0992,
+                        acc_y_g: 0.31413335,
+                        acc_z_g: 0.54933333,
+                        gyr_x_dps: -22.4,
+                        gyr_y_dps: -8.4,
+                        gyr_z_dps: -9.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0848,
+                        acc_y_g: 0.28266665,
+                        acc_z_g: 0.6736,
+                        gyr_x_dps: -20.466667,
+                        gyr_y_dps: -8.666667,
+                        gyr_z_dps: -8.6
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0810666,
+                        acc_y_g: 0.40693334,
+                        acc_z_g: 0.5290667,
+                        gyr_x_dps: -32.666668,
+                        gyr_y_dps: -9.2,
+                        gyr_z_dps: -8.066667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0848,
+                        acc_y_g: 0.26346666,
+                        acc_z_g: 0.5061333,
+                        gyr_x_dps: -8.533334,
+                        gyr_y_dps: -9.933333,
+                        gyr_z_dps: -7.733333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0842667,
+                        acc_y_g: 0.15466666,
+                        acc_z_g: 0.4928,
+                        gyr_x_dps: -0.6,
+                        gyr_y_dps: -10.533334,
+                        gyr_z_dps: -7.4
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0565333,
+                        acc_y_g: 0.3888,
+                        acc_z_g: 0.50186664,
+                        gyr_x_dps: -11.6,
+                        gyr_y_dps: -10.866667,
+                        gyr_z_dps: -7.133333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1712,
+                        acc_y_g: 0.3392,
+                        acc_z_g: 0.4144,
+                        gyr_x_dps: 7.5333333,
+                        gyr_y_dps: -10.733334,
+                        gyr_z_dps: -7.4
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0325334,
+                        acc_y_g: 0.48053333,
+                        acc_z_g: 0.57813334,
+                        gyr_x_dps: 6.5333333,
+                        gyr_y_dps: -10.0,
+                        gyr_z_dps: -7.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.04,
+                        acc_y_g: 0.4944,
+                        acc_z_g: 0.60426664,
+                        gyr_x_dps: 4.9333334,
+                        gyr_y_dps: -9.333333,
+                        gyr_z_dps: -6.9333334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0416,
+                        acc_y_g: 0.47946668,
+                        acc_z_g: 0.60426664,
+                        gyr_x_dps: 2.4666667,
+                        gyr_y_dps: -9.066667,
+                        gyr_z_dps: -6.266667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0474668,
+                        acc_y_g: 0.49066666,
+                        acc_z_g: 0.62186664,
+                        gyr_x_dps: 0.8,
+                        gyr_y_dps: -9.133333,
+                        gyr_z_dps: -5.6666665
+                    },
+                    ImuSample {
+                        acc_x_g: -1.912,
+                        acc_y_g: 0.4992,
+                        acc_z_g: 0.6384,
+                        gyr_x_dps: 16.0,
+                        gyr_y_dps: -9.2,
+                        gyr_z_dps: -5.6666665
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0602667,
+                        acc_y_g: 0.49066666,
+                        acc_z_g: 0.6501333,
+                        gyr_x_dps: -3.4666667,
+                        gyr_y_dps: -9.066667,
+                        gyr_z_dps: -6.0
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0816,
+                        acc_y_g: 0.46186668,
+                        acc_z_g: 0.6736,
+                        gyr_x_dps: -4.6666665,
+                        gyr_y_dps: -9.066667,
+                        gyr_z_dps: -6.6666665
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1002667,
+                        acc_y_g: 0.41813335,
+                        acc_z_g: 0.67786664,
+                        gyr_x_dps: -3.8666666,
+                        gyr_y_dps: -9.133333,
+                        gyr_z_dps: -7.4666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1136,
+                        acc_y_g: 0.42613333,
+                        acc_z_g: 0.6288,
+                        gyr_x_dps: -1.6666666,
+                        gyr_y_dps: -9.733334,
+                        gyr_z_dps: -8.333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0970666,
+                        acc_y_g: 0.4336,
+                        acc_z_g: 0.60426664,
+                        gyr_x_dps: -15.8,
+                        gyr_y_dps: -10.4,
+                        gyr_z_dps: -9.533334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0693333,
+                        acc_y_g: 0.424,
+                        acc_z_g: 0.64533335,
+                        gyr_x_dps: 2.0666666,
+                        gyr_y_dps: -11.0,
+                        gyr_z_dps: -10.666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0485334,
+                        acc_y_g: 0.41173333,
+                        acc_z_g: 0.6816,
+                        gyr_x_dps: 1.1333333,
+                        gyr_y_dps: -11.133333,
+                        gyr_z_dps: -11.333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1498666,
+                        acc_y_g: 0.41973335,
+                        acc_z_g: 0.5872,
+                        gyr_x_dps: 16.333334,
+                        gyr_y_dps: -10.6,
+                        gyr_z_dps: -11.866667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0069335,
+                        acc_y_g: 0.42293334,
+                        acc_z_g: 0.74453336,
+                        gyr_x_dps: -4.0666666,
+                        gyr_y_dps: -9.733334,
+                        gyr_z_dps: -11.866667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0005333,
+                        acc_y_g: 0.42026666,
+                        acc_z_g: 0.7589333,
+                        gyr_x_dps: -8.066667,
+                        gyr_y_dps: -8.8,
+                        gyr_z_dps: -11.133333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0005333,
+                        acc_y_g: 0.5312,
+                        acc_z_g: 0.7376,
+                        gyr_x_dps: -13.6,
+                        gyr_y_dps: -7.5333333,
+                        gyr_z_dps: -10.066667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0149333,
+                        acc_y_g: 0.40586665,
+                        acc_z_g: 0.7317333,
+                        gyr_x_dps: -3.6,
+                        gyr_y_dps: -6.133333,
+                        gyr_z_dps: -9.133333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0336,
+                        acc_y_g: 0.30773333,
+                        acc_z_g: 0.73546666,
+                        gyr_x_dps: -30.2,
+                        gyr_y_dps: -5.0666666,
+                        gyr_z_dps: -8.133333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0362666,
+                        acc_y_g: 0.48373333,
+                        acc_z_g: 0.7392,
+                        gyr_x_dps: -25.133333,
+                        gyr_y_dps: -4.0666666,
+                        gyr_z_dps: -7.266667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9184,
+                        acc_y_g: 0.4432,
+                        acc_z_g: 0.744,
+                        gyr_x_dps: -34.866665,
+                        gyr_y_dps: -3.1333334,
+                        gyr_z_dps: -6.6666665
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0704,
+                        acc_y_g: 0.44106665,
+                        acc_z_g: 0.72746664,
+                        gyr_x_dps: -53.4,
+                        gyr_y_dps: -2.4666667,
+                        gyr_z_dps: -6.266667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0650666,
+                        acc_y_g: 0.36373332,
+                        acc_z_g: 0.71573335,
+                        gyr_x_dps: -63.866665,
+                        gyr_y_dps: -2.2666667,
+                        gyr_z_dps: -6.266667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0645332,
+                        acc_y_g: 0.25173333,
+                        acc_z_g: 0.6965333,
+                        gyr_x_dps: -36.333332,
+                        gyr_y_dps: -2.1333334,
+                        gyr_z_dps: -7.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0794666,
+                        acc_y_g: 0.2544,
+                        acc_z_g: 0.69173336,
+                        gyr_x_dps: -43.533333,
+                        gyr_y_dps: -1.8,
+                        gyr_z_dps: -8.066667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0773335,
+                        acc_y_g: 0.24213333,
+                        acc_z_g: 0.68266666,
+                        gyr_x_dps: -18.8,
+                        gyr_y_dps: -1.4,
+                        gyr_z_dps: -8.266666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0693333,
+                        acc_y_g: 0.2448,
+                        acc_z_g: 0.8032,
+                        gyr_x_dps: -29.8,
+                        gyr_y_dps: -0.93333334,
+                        gyr_z_dps: -7.866667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0517333,
+                        acc_y_g: 0.25013334,
+                        acc_z_g: 0.67786664,
+                        gyr_x_dps: -8.866667,
+                        gyr_y_dps: -0.8,
+                        gyr_z_dps: -7.4666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1744,
+                        acc_y_g: 0.2528,
+                        acc_z_g: 0.5568,
+                        gyr_x_dps: -6.733333,
+                        gyr_y_dps: -1.0666667,
+                        gyr_z_dps: -7.133333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0346668,
+                        acc_y_g: 0.2528,
+                        acc_z_g: 0.72213334,
+                        gyr_x_dps: -6.2,
+                        gyr_y_dps: -1.4666667,
+                        gyr_z_dps: -6.6666665
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0341334,
+                        acc_y_g: 0.26186666,
+                        acc_z_g: 0.74986666,
+                        gyr_x_dps: -7.8,
+                        gyr_y_dps: -1.6,
+                        gyr_z_dps: -5.866667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0421333,
+                        acc_y_g: 0.2592,
+                        acc_z_g: 0.76053333,
+                        gyr_x_dps: -9.6,
+                        gyr_y_dps: -1.4666667,
+                        gyr_z_dps: -5.133333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9216,
+                        acc_y_g: 0.21226667,
+                        acc_z_g: 0.75093335,
+                        gyr_x_dps: -10.0,
+                        gyr_y_dps: -1.5333333,
+                        gyr_z_dps: -4.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0677333,
+                        acc_y_g: 0.1776,
+                        acc_z_g: 0.7285333,
+                        gyr_x_dps: -8.666667,
+                        gyr_y_dps: -1.8,
+                        gyr_z_dps: -3.9333334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0704,
+                        acc_y_g: 0.20053333,
+                        acc_z_g: 0.72213334,
+                        gyr_x_dps: -6.3333335,
+                        gyr_y_dps: -2.0666666,
+                        gyr_z_dps: -3.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0709333,
+                        acc_y_g: 0.2368,
+                        acc_z_g: 0.71306664,
+                        gyr_x_dps: -5.2,
+                        gyr_y_dps: -2.0,
+                        gyr_z_dps: -3.3333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0730667,
+                        acc_y_g: 0.272,
+                        acc_z_g: 0.8165333,
+                        gyr_x_dps: -4.9333334,
+                        gyr_y_dps: -1.7333333,
+                        gyr_z_dps: -3.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0768,
+                        acc_y_g: 0.1376,
+                        acc_z_g: 0.5488,
+                        gyr_x_dps: -4.9333334,
+                        gyr_y_dps: -1.8666667,
+                        gyr_z_dps: -2.8666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0661333,
+                        acc_y_g: 0.37546667,
+                        acc_z_g: 0.70346665,
+                        gyr_x_dps: -5.5333333,
+                        gyr_y_dps: -2.2,
+                        gyr_z_dps: -2.4
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0512,
+                        acc_y_g: 0.2336,
+                        acc_z_g: 0.70133334,
+                        gyr_x_dps: -6.3333335,
+                        gyr_y_dps: -2.1333334,
+                        gyr_z_dps: -1.6666666
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0538666,
+                        acc_y_g: 0.2384,
+                        acc_z_g: 0.72,
+                        gyr_x_dps: -6.733333,
+                        gyr_y_dps: -1.6666666,
+                        gyr_z_dps: -1.1333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0672,
+                        acc_y_g: 0.23786667,
+                        acc_z_g: 0.72,
+                        gyr_x_dps: -5.6,
+                        gyr_y_dps: -1.2666667,
+                        gyr_z_dps: -0.93333334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0672,
+                        acc_y_g: 0.2368,
+                        acc_z_g: 0.72,
+                        gyr_x_dps: -3.1333334,
+                        gyr_y_dps: -1.3333334,
+                        gyr_z_dps: -0.93333334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0618668,
+                        acc_y_g: 0.2576,
+                        acc_z_g: 0.6906667,
+                        gyr_x_dps: -0.53333336,
+                        gyr_y_dps: -1.3333334,
+                        gyr_z_dps: -0.8
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0618668,
+                        acc_y_g: 0.1472,
+                        acc_z_g: 0.8085333,
+                        gyr_x_dps: -16.333334,
+                        gyr_y_dps: -1.4666667,
+                        gyr_z_dps: -0.6
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0522666,
+                        acc_y_g: 0.4048,
+                        acc_z_g: 0.568,
+                        gyr_x_dps: 16.933332,
+                        gyr_y_dps: -2.0666666,
+                        gyr_z_dps: -0.33333334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0544,
+                        acc_y_g: 0.2464,
+                        acc_z_g: 0.68906665,
+                        gyr_x_dps: -1.8,
+                        gyr_y_dps: -3.0,
+                        gyr_z_dps: -16.6
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0586667,
+                        acc_y_g: 0.22453333,
+                        acc_z_g: 0.81013334,
+                        gyr_x_dps: -2.0,
+                        gyr_y_dps: -3.6666667,
+                        gyr_z_dps: 1.1333333
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0544,
+                        acc_y_g: 0.2544,
+                        acc_z_g: 0.552,
+                        gyr_x_dps: -1.3333334,
+                        gyr_y_dps: -4.2,
+                        gyr_z_dps: 1.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0613334,
+                        acc_y_g: 0.23893334,
+                        acc_z_g: 0.7141333,
+                        gyr_x_dps: -0.8666667,
+                        gyr_y_dps: -4.9333334,
+                        gyr_z_dps: 0.93333334
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1834667,
+                        acc_y_g: 0.21013333,
+                        acc_z_g: 0.7370667,
+                        gyr_x_dps: -0.53333336,
+                        gyr_y_dps: -5.4666667,
+                        gyr_z_dps: 1.2
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0416,
+                        acc_y_g: 0.18933333,
+                        acc_z_g: 0.75093335,
+                        gyr_x_dps: -15.733334,
+                        gyr_y_dps: -5.5333333,
+                        gyr_z_dps: 1.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.9146667,
+                        acc_y_g: 0.21013333,
+                        acc_z_g: 0.75413334,
+                        gyr_x_dps: 4.266667,
+                        gyr_y_dps: -5.6,
+                        gyr_z_dps: 1.4
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0677333,
+                        acc_y_g: 0.232,
+                        acc_z_g: 0.7578667,
+                        gyr_x_dps: 7.2,
+                        gyr_y_dps: -5.8,
+                        gyr_z_dps: 0.8666667
+                    },
+                    ImuSample {
+                        acc_x_g: -2.0778666,
+                        acc_y_g: 0.2576,
+                        acc_z_g: 0.7434667,
+                        gyr_x_dps: 9.533334,
+                        gyr_y_dps: -5.6,
+                        gyr_z_dps: 0.4
+                    },
+                    ImuSample {
+                        acc_x_g: -2.1109333,
+                        acc_y_g: 0.24746667,
+                        acc_z_g: 0.6853333,
+                        gyr_x_dps: 2.8666666,
+                        gyr_y_dps: -15.266666,
+                        gyr_z_dps: 0.0
+                    },
+                    ImuSample {
+                        acc_x_g: 0.54293334,
+                        acc_y_g: 0.51306665,
+                        acc_z_g: 0.19093333,
+                        gyr_x_dps: -14.6,
+                        gyr_y_dps: 1.3333334,
+                        gyr_z_dps: 17.066668
+                    }
+                ]
+                .to_vec()
             })
         );
 
@@ -1110,7 +1107,7 @@ mod tests {
                 bpm: 64,
                 rr: vec![],
                 activity: 1833115904,
-                imu_data: None
+                imu_data: Vec::new()
             })
         );
 
@@ -1125,7 +1122,7 @@ mod tests {
                 bpm: 54,
                 rr: vec![1173],
                 activity: 1285750784,
-                imu_data: None
+                imu_data: Vec::new()
             })
         );
 
@@ -1140,7 +1137,7 @@ mod tests {
                 bpm: 87,
                 rr: Vec::new(),
                 activity: 1632698368,
-                imu_data: None
+                imu_data: Vec::new()
             })
         );
 
@@ -1152,815 +1149,813 @@ mod tests {
         assert_eq!(
             data,
             WhoopData::HistoryReading(HistoryReading {
-                unix: 1748326492008,
+                unix: 1748326489000,
                 bpm: 60,
                 rr: Vec::new(),
                 activity: 0,
-                imu_data: Some(
-                    [
-                        ImuSample {
-                            acc_x_g: -1.8272,
-                            acc_y_g: -0.2048,
-                            acc_z_g: 1.1562667,
-                            gyr_x_dps: 1.4666667,
-                            gyr_y_dps: -0.33333334,
-                            gyr_z_dps: -0.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8362666,
-                            acc_y_g: -0.2048,
-                            acc_z_g: 1.1722667,
-                            gyr_x_dps: 1.2666667,
-                            gyr_y_dps: -0.33333334,
-                            gyr_z_dps: -0.53333336
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8352,
-                            acc_y_g: -0.2032,
-                            acc_z_g: 1.1786667,
-                            gyr_x_dps: 1.2,
-                            gyr_y_dps: -0.33333334,
-                            gyr_z_dps: -0.46666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8373333,
-                            acc_y_g: -0.1968,
-                            acc_z_g: 1.1786667,
-                            gyr_x_dps: 0.93333334,
-                            gyr_y_dps: -0.26666668,
-                            gyr_z_dps: -0.6
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8394667,
-                            acc_y_g: -0.19306667,
-                            acc_z_g: 1.1829333,
-                            gyr_x_dps: 0.8666667,
-                            gyr_y_dps: -0.06666667,
-                            gyr_z_dps: -0.6
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8256,
-                            acc_y_g: -0.19893333,
-                            acc_z_g: 1.1786667,
-                            gyr_x_dps: 0.73333335,
-                            gyr_y_dps: -17.0,
-                            gyr_z_dps: -0.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8298666,
-                            acc_y_g: -0.19413333,
-                            acc_z_g: 1.1776,
-                            gyr_x_dps: 0.6666667,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -0.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8245333,
-                            acc_y_g: -0.1856,
-                            acc_z_g: 1.1765333,
-                            gyr_x_dps: 0.53333336,
-                            gyr_y_dps: 0.4,
-                            gyr_z_dps: -0.73333335
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8325334,
-                            acc_y_g: -0.19253333,
-                            acc_z_g: 1.184,
-                            gyr_x_dps: 0.8,
-                            gyr_y_dps: 0.6,
-                            gyr_z_dps: -0.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8309333,
-                            acc_y_g: -0.20693333,
-                            acc_z_g: 1.1744,
-                            gyr_x_dps: 0.6,
-                            gyr_y_dps: 0.73333335,
-                            gyr_z_dps: -0.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8288,
-                            acc_y_g: -0.20853333,
-                            acc_z_g: 1.1701334,
-                            gyr_x_dps: 0.73333335,
-                            gyr_y_dps: 0.8,
-                            gyr_z_dps: -0.8666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8341334,
-                            acc_y_g: -0.2016,
-                            acc_z_g: 1.1744,
-                            gyr_x_dps: 1.0,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -0.8666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.832,
-                            acc_y_g: -0.1952,
-                            acc_z_g: 1.1722667,
-                            gyr_x_dps: 0.8666667,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -0.93333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.824,
-                            acc_y_g: -0.2016,
-                            acc_z_g: 1.1701334,
-                            gyr_x_dps: 0.53333336,
-                            gyr_y_dps: 1.0666667,
-                            gyr_z_dps: -0.8666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.832,
-                            acc_y_g: -0.21226667,
-                            acc_z_g: 1.1685333,
-                            gyr_x_dps: 0.33333334,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -0.8666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8373333,
-                            acc_y_g: -0.20266667,
-                            acc_z_g: 1.1621333,
-                            gyr_x_dps: 0.4,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -0.93333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.84,
-                            acc_y_g: -0.2048,
-                            acc_z_g: 1.1685333,
-                            gyr_x_dps: 0.6,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -1.0666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8325334,
-                            acc_y_g: -0.192,
-                            acc_z_g: 1.1562667,
-                            gyr_x_dps: 0.73333335,
-                            gyr_y_dps: 0.6666667,
-                            gyr_z_dps: -1.1333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8325334,
-                            acc_y_g: -0.18933333,
-                            acc_z_g: 1.1493334,
-                            gyr_x_dps: 0.6,
-                            gyr_y_dps: 0.53333336,
-                            gyr_z_dps: -1.2666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8277333,
-                            acc_y_g: -0.19466667,
-                            acc_z_g: 1.1509334,
-                            gyr_x_dps: 0.6666667,
-                            gyr_y_dps: 0.4,
-                            gyr_z_dps: -1.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8261334,
-                            acc_y_g: -0.20533334,
-                            acc_z_g: 1.1466666,
-                            gyr_x_dps: 0.73333335,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -1.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8309333,
-                            acc_y_g: -0.20853333,
-                            acc_z_g: 1.1504,
-                            gyr_x_dps: 1.1333333,
-                            gyr_y_dps: 0.2,
-                            gyr_z_dps: -1.6
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8368,
-                            acc_y_g: -0.20853333,
-                            acc_z_g: 1.1445333,
-                            gyr_x_dps: 1.4666667,
-                            gyr_y_dps: 0.0,
-                            gyr_z_dps: -1.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8448,
-                            acc_y_g: -0.20533334,
-                            acc_z_g: 1.1578667,
-                            gyr_x_dps: 1.8666667,
-                            gyr_y_dps: 16.866667,
-                            gyr_z_dps: -1.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8426666,
-                            acc_y_g: -0.2128,
-                            acc_z_g: 1.1664,
-                            gyr_x_dps: 2.2,
-                            gyr_y_dps: -0.33333334,
-                            gyr_z_dps: -1.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8341334,
-                            acc_y_g: -0.2144,
-                            acc_z_g: 1.1626667,
-                            gyr_x_dps: 2.3333333,
-                            gyr_y_dps: -0.4,
-                            gyr_z_dps: -1.6666666
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8357333,
-                            acc_y_g: -0.216,
-                            acc_z_g: 1.168,
-                            gyr_x_dps: 2.4,
-                            gyr_y_dps: -0.46666667,
-                            gyr_z_dps: -1.6666666
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8309333,
-                            acc_y_g: -0.21546666,
-                            acc_z_g: 1.1701334,
-                            gyr_x_dps: 2.5333333,
-                            gyr_y_dps: -0.53333336,
-                            gyr_z_dps: -1.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8346666,
-                            acc_y_g: -0.20853333,
-                            acc_z_g: 1.1717334,
-                            gyr_x_dps: 2.6,
-                            gyr_y_dps: -0.46666667,
-                            gyr_z_dps: -1.8666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8346666,
-                            acc_y_g: -0.19786666,
-                            acc_z_g: 1.1733333,
-                            gyr_x_dps: 2.6,
-                            gyr_y_dps: -0.46666667,
-                            gyr_z_dps: -2.0
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8261334,
-                            acc_y_g: -0.19733334,
-                            acc_z_g: 1.1712,
-                            gyr_x_dps: 2.2666667,
-                            gyr_y_dps: -0.46666667,
-                            gyr_z_dps: -2.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8234667,
-                            acc_y_g: -0.19893333,
-                            acc_z_g: 1.1738666,
-                            gyr_x_dps: 2.0,
-                            gyr_y_dps: -0.46666667,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8229333,
-                            acc_y_g: -0.20426667,
-                            acc_z_g: 1.1754667,
-                            gyr_x_dps: 2.0,
-                            gyr_y_dps: -0.33333334,
-                            gyr_z_dps: -2.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8256,
-                            acc_y_g: -0.20533334,
-                            acc_z_g: 1.1781334,
-                            gyr_x_dps: 2.0666666,
-                            gyr_y_dps: -0.2,
-                            gyr_z_dps: -2.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8314667,
-                            acc_y_g: -0.208,
-                            acc_z_g: 1.1829333,
-                            gyr_x_dps: 2.2,
-                            gyr_y_dps: -0.06666667,
-                            gyr_z_dps: -2.6
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8394667,
-                            acc_y_g: -0.2032,
-                            acc_z_g: 1.1776,
-                            gyr_x_dps: 2.2666667,
-                            gyr_y_dps: -17.066668,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8330667,
-                            acc_y_g: -0.21013333,
-                            acc_z_g: 1.1754667,
-                            gyr_x_dps: 2.3333333,
-                            gyr_y_dps: 0.06666667,
-                            gyr_z_dps: -2.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8352,
-                            acc_y_g: -0.2256,
-                            acc_z_g: 1.1738666,
-                            gyr_x_dps: 2.2666667,
-                            gyr_y_dps: 0.06666667,
-                            gyr_z_dps: -2.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8314667,
-                            acc_y_g: -0.2272,
-                            acc_z_g: 1.1754667,
-                            gyr_x_dps: 2.2666667,
-                            gyr_y_dps: 0.2,
-                            gyr_z_dps: -2.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8288,
-                            acc_y_g: -0.22453333,
-                            acc_z_g: 1.1733333,
-                            gyr_x_dps: 2.4,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8309333,
-                            acc_y_g: -0.2256,
-                            acc_z_g: 1.168,
-                            gyr_x_dps: 2.4666667,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8410667,
-                            acc_y_g: -0.224,
-                            acc_z_g: 1.1610667,
-                            gyr_x_dps: 2.4666667,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.84,
-                            acc_y_g: -0.2272,
-                            acc_z_g: 1.1594666,
-                            gyr_x_dps: 2.4666667,
-                            gyr_y_dps: 0.33333334,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8362666,
-                            acc_y_g: -0.23093334,
-                            acc_z_g: 1.1626667,
-                            gyr_x_dps: 2.6666667,
-                            gyr_y_dps: 0.33333334,
-                            gyr_z_dps: -2.6
-                        },
-                        ImuSample {
-                            acc_x_g: -1.84,
-                            acc_y_g: -0.23413333,
-                            acc_z_g: 1.16,
-                            gyr_x_dps: 2.8666666,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -2.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8416,
-                            acc_y_g: -0.23466666,
-                            acc_z_g: 1.1546667,
-                            gyr_x_dps: 3.0666666,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -2.4666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8325334,
-                            acc_y_g: -0.2208,
-                            acc_z_g: 1.1557333,
-                            gyr_x_dps: 3.2,
-                            gyr_y_dps: 0.2,
-                            gyr_z_dps: -2.4666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8288,
-                            acc_y_g: -0.20853333,
-                            acc_z_g: 1.16,
-                            gyr_x_dps: 3.1333334,
-                            gyr_y_dps: 0.0,
-                            gyr_z_dps: -2.4666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8314667,
-                            acc_y_g: -0.21013333,
-                            acc_z_g: 1.1605333,
-                            gyr_x_dps: 3.0,
-                            gyr_y_dps: 17.0,
-                            gyr_z_dps: -2.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8330667,
-                            acc_y_g: -0.21973333,
-                            acc_z_g: 1.1621333,
-                            gyr_x_dps: 3.0,
-                            gyr_y_dps: -17.066668,
-                            gyr_z_dps: -2.3333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8368,
-                            acc_y_g: -0.22346666,
-                            acc_z_g: 1.1648,
-                            gyr_x_dps: 3.3333333,
-                            gyr_y_dps: 17.0,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8346666,
-                            acc_y_g: -0.2208,
-                            acc_z_g: 1.1690667,
-                            gyr_x_dps: 3.7333333,
-                            gyr_y_dps: -0.06666667,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8272,
-                            acc_y_g: -0.21173333,
-                            acc_z_g: 1.1738666,
-                            gyr_x_dps: 4.0,
-                            gyr_y_dps: -0.13333334,
-                            gyr_z_dps: -2.2666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8229333,
-                            acc_y_g: -0.20586666,
-                            acc_z_g: 1.1749333,
-                            gyr_x_dps: 4.0666666,
-                            gyr_y_dps: -0.13333334,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8165333,
-                            acc_y_g: -0.2,
-                            acc_z_g: 1.1781334,
-                            gyr_x_dps: 3.9333334,
-                            gyr_y_dps: -0.06666667,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8090667,
-                            acc_y_g: -0.19093333,
-                            acc_z_g: 1.1824,
-                            gyr_x_dps: 3.6666667,
-                            gyr_y_dps: -17.0,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8138666,
-                            acc_y_g: -0.1872,
-                            acc_z_g: 1.1824,
-                            gyr_x_dps: 3.2666667,
-                            gyr_y_dps: 0.26666668,
-                            gyr_z_dps: -2.2666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.816,
-                            acc_y_g: -0.1904,
-                            acc_z_g: 1.1824,
-                            gyr_x_dps: 3.0666666,
-                            gyr_y_dps: 0.46666667,
-                            gyr_z_dps: -2.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8202667,
-                            acc_y_g: -0.1936,
-                            acc_z_g: 1.1824,
-                            gyr_x_dps: 3.0666666,
-                            gyr_y_dps: 0.6,
-                            gyr_z_dps: -2.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8229333,
-                            acc_y_g: -0.19093333,
-                            acc_z_g: 1.1733333,
-                            gyr_x_dps: 3.2,
-                            gyr_y_dps: 0.73333335,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8266667,
-                            acc_y_g: -0.19893333,
-                            acc_z_g: 1.1722667,
-                            gyr_x_dps: 3.2666667,
-                            gyr_y_dps: 0.8,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8272,
-                            acc_y_g: -0.208,
-                            acc_z_g: 1.1712,
-                            gyr_x_dps: 3.3333333,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -2.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8330667,
-                            acc_y_g: -0.21493334,
-                            acc_z_g: 1.1754667,
-                            gyr_x_dps: 3.5333333,
-                            gyr_y_dps: 0.93333334,
-                            gyr_z_dps: -2.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8325334,
-                            acc_y_g: -0.21493334,
-                            acc_z_g: 1.176,
-                            gyr_x_dps: 3.7333333,
-                            gyr_y_dps: 0.93333334,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8298666,
-                            acc_y_g: -0.19786666,
-                            acc_z_g: 1.1610667,
-                            gyr_x_dps: 3.9333334,
-                            gyr_y_dps: 0.93333334,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8288,
-                            acc_y_g: -0.1904,
-                            acc_z_g: 1.1562667,
-                            gyr_x_dps: 3.8666666,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -2.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8314667,
-                            acc_y_g: -0.192,
-                            acc_z_g: 1.1509334,
-                            gyr_x_dps: 3.4666667,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -2.8666666
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8448,
-                            acc_y_g: -0.19306667,
-                            acc_z_g: 1.1424,
-                            gyr_x_dps: 3.0666666,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -3.0
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8416,
-                            acc_y_g: -0.2048,
-                            acc_z_g: 1.1424,
-                            gyr_x_dps: 3.0,
-                            gyr_y_dps: 0.8,
-                            gyr_z_dps: -3.1333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8485334,
-                            acc_y_g: -0.21013333,
-                            acc_z_g: 1.1402667,
-                            gyr_x_dps: 3.0666666,
-                            gyr_y_dps: 0.73333335,
-                            gyr_z_dps: -3.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8496,
-                            acc_y_g: -0.20266667,
-                            acc_z_g: 1.1333333,
-                            gyr_x_dps: 3.2,
-                            gyr_y_dps: 0.73333335,
-                            gyr_z_dps: -3.1333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8528,
-                            acc_y_g: -0.20213333,
-                            acc_z_g: 1.1381333,
-                            gyr_x_dps: 3.1333334,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -3.0666666
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8602667,
-                            acc_y_g: -0.20373334,
-                            acc_z_g: 1.1381333,
-                            gyr_x_dps: 2.8,
-                            gyr_y_dps: 0.93333334,
-                            gyr_z_dps: -2.9333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8464,
-                            acc_y_g: -0.2064,
-                            acc_z_g: 1.1413333,
-                            gyr_x_dps: 2.5333333,
-                            gyr_y_dps: 0.93333334,
-                            gyr_z_dps: -2.8
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8469334,
-                            acc_y_g: -0.216,
-                            acc_z_g: 1.1504,
-                            gyr_x_dps: 2.4666667,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8432,
-                            acc_y_g: -0.2128,
-                            acc_z_g: 1.1477333,
-                            gyr_x_dps: 2.4,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8304,
-                            acc_y_g: -0.21333334,
-                            acc_z_g: 1.1472,
-                            gyr_x_dps: 2.3333333,
-                            gyr_y_dps: 1.0666667,
-                            gyr_z_dps: -2.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8298666,
-                            acc_y_g: -0.19626667,
-                            acc_z_g: 1.1562667,
-                            gyr_x_dps: 2.2,
-                            gyr_y_dps: 1.2,
-                            gyr_z_dps: -2.6
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8453333,
-                            acc_y_g: -0.20213333,
-                            acc_z_g: 1.1504,
-                            gyr_x_dps: 1.9333333,
-                            gyr_y_dps: 1.2,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8586667,
-                            acc_y_g: -0.20586666,
-                            acc_z_g: 1.1509334,
-                            gyr_x_dps: 1.6,
-                            gyr_y_dps: 1.2,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8464,
-                            acc_y_g: -0.2,
-                            acc_z_g: 1.1546667,
-                            gyr_x_dps: 1.3333334,
-                            gyr_y_dps: 1.1333333,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8501333,
-                            acc_y_g: -0.2032,
-                            acc_z_g: 1.1488,
-                            gyr_x_dps: 1.0666667,
-                            gyr_y_dps: 1.3333334,
-                            gyr_z_dps: -2.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8469334,
-                            acc_y_g: -0.19946666,
-                            acc_z_g: 1.1450666,
-                            gyr_x_dps: 0.6666667,
-                            gyr_y_dps: 1.6,
-                            gyr_z_dps: -2.6666667
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8618667,
-                            acc_y_g: -0.19786666,
-                            acc_z_g: 1.1424,
-                            gyr_x_dps: 0.53333336,
-                            gyr_y_dps: 1.8,
-                            gyr_z_dps: -2.8666666
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8629333,
-                            acc_y_g: -0.20106667,
-                            acc_z_g: 1.1301334,
-                            gyr_x_dps: 0.2,
-                            gyr_y_dps: 1.8,
-                            gyr_z_dps: -2.7333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8645333,
-                            acc_y_g: -0.2144,
-                            acc_z_g: 1.1333333,
-                            gyr_x_dps: 0.06666667,
-                            gyr_y_dps: 1.7333333,
-                            gyr_z_dps: -2.5333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8608,
-                            acc_y_g: -0.22026667,
-                            acc_z_g: 1.1232,
-                            gyr_x_dps: 0.06666667,
-                            gyr_y_dps: 1.7333333,
-                            gyr_z_dps: -2.3333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8437333,
-                            acc_y_g: -0.21386667,
-                            acc_z_g: 1.1136,
-                            gyr_x_dps: 0.13333334,
-                            gyr_y_dps: 1.7333333,
-                            gyr_z_dps: -2.1333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8464,
-                            acc_y_g: -0.21813333,
-                            acc_z_g: 1.1082667,
-                            gyr_x_dps: 0.06666667,
-                            gyr_y_dps: 1.7333333,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8608,
-                            acc_y_g: -0.2336,
-                            acc_z_g: 1.0986667,
-                            gyr_x_dps: 16.933332,
-                            gyr_y_dps: 1.6,
-                            gyr_z_dps: -2.2
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8656,
-                            acc_y_g: -0.2384,
-                            acc_z_g: 1.0944,
-                            gyr_x_dps: -0.26666668,
-                            gyr_y_dps: 1.4,
-                            gyr_z_dps: -2.1333334
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8688,
-                            acc_y_g: -0.23413333,
-                            acc_z_g: 1.1077334,
-                            gyr_x_dps: -0.4,
-                            gyr_y_dps: 1.2666667,
-                            gyr_z_dps: -1.9333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8629333,
-                            acc_y_g: -0.23786667,
-                            acc_z_g: 1.1125333,
-                            gyr_x_dps: -0.8666667,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -1.6
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8714666,
-                            acc_y_g: -0.2368,
-                            acc_z_g: 1.1285334,
-                            gyr_x_dps: -1.2666667,
-                            gyr_y_dps: 1.0,
-                            gyr_z_dps: -1.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8725333,
-                            acc_y_g: -0.24906667,
-                            acc_z_g: 1.1365334,
-                            gyr_x_dps: -1.7333333,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -1.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8768,
-                            acc_y_g: -0.2384,
-                            acc_z_g: 1.1482667,
-                            gyr_x_dps: -1.8666667,
-                            gyr_y_dps: 0.73333335,
-                            gyr_z_dps: -1.1333333
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8581333,
-                            acc_y_g: -0.2496,
-                            acc_z_g: 1.1392,
-                            gyr_x_dps: -1.7333333,
-                            gyr_y_dps: 0.6666667,
-                            gyr_z_dps: -0.73333335
-                        },
-                        ImuSample {
-                            acc_x_g: -1.8437333,
-                            acc_y_g: -0.23413333,
-                            acc_z_g: 1.1434667,
-                            gyr_x_dps: -1.5333333,
-                            gyr_y_dps: 0.8666667,
-                            gyr_z_dps: -0.4
-                        },
-                        ImuSample {
-                            acc_x_g: -1.856,
-                            acc_y_g: -0.216,
-                            acc_z_g: 1.0949334,
-                            gyr_x_dps: -0.06666667,
-                            gyr_y_dps: 16.133333,
-                            gyr_z_dps: -17.066668
-                        },
-                        ImuSample {
-                            acc_x_g: -0.2176,
-                            acc_y_g: 1.152,
-                            acc_z_g: 0.1904,
-                            gyr_x_dps: -0.2,
-                            gyr_y_dps: -0.8,
-                            gyr_z_dps: 17.066668
-                        }
-                    ]
-                    .to_vec()
-                )
+                imu_data: [
+                    ImuSample {
+                        acc_x_g: -1.8272,
+                        acc_y_g: -0.2048,
+                        acc_z_g: 1.1562667,
+                        gyr_x_dps: 1.4666667,
+                        gyr_y_dps: -0.33333334,
+                        gyr_z_dps: -0.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8362666,
+                        acc_y_g: -0.2048,
+                        acc_z_g: 1.1722667,
+                        gyr_x_dps: 1.2666667,
+                        gyr_y_dps: -0.33333334,
+                        gyr_z_dps: -0.53333336
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8352,
+                        acc_y_g: -0.2032,
+                        acc_z_g: 1.1786667,
+                        gyr_x_dps: 1.2,
+                        gyr_y_dps: -0.33333334,
+                        gyr_z_dps: -0.46666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8373333,
+                        acc_y_g: -0.1968,
+                        acc_z_g: 1.1786667,
+                        gyr_x_dps: 0.93333334,
+                        gyr_y_dps: -0.26666668,
+                        gyr_z_dps: -0.6
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8394667,
+                        acc_y_g: -0.19306667,
+                        acc_z_g: 1.1829333,
+                        gyr_x_dps: 0.8666667,
+                        gyr_y_dps: -0.06666667,
+                        gyr_z_dps: -0.6
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8256,
+                        acc_y_g: -0.19893333,
+                        acc_z_g: 1.1786667,
+                        gyr_x_dps: 0.73333335,
+                        gyr_y_dps: -17.0,
+                        gyr_z_dps: -0.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8298666,
+                        acc_y_g: -0.19413333,
+                        acc_z_g: 1.1776,
+                        gyr_x_dps: 0.6666667,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -0.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8245333,
+                        acc_y_g: -0.1856,
+                        acc_z_g: 1.1765333,
+                        gyr_x_dps: 0.53333336,
+                        gyr_y_dps: 0.4,
+                        gyr_z_dps: -0.73333335
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8325334,
+                        acc_y_g: -0.19253333,
+                        acc_z_g: 1.184,
+                        gyr_x_dps: 0.8,
+                        gyr_y_dps: 0.6,
+                        gyr_z_dps: -0.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8309333,
+                        acc_y_g: -0.20693333,
+                        acc_z_g: 1.1744,
+                        gyr_x_dps: 0.6,
+                        gyr_y_dps: 0.73333335,
+                        gyr_z_dps: -0.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8288,
+                        acc_y_g: -0.20853333,
+                        acc_z_g: 1.1701334,
+                        gyr_x_dps: 0.73333335,
+                        gyr_y_dps: 0.8,
+                        gyr_z_dps: -0.8666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8341334,
+                        acc_y_g: -0.2016,
+                        acc_z_g: 1.1744,
+                        gyr_x_dps: 1.0,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -0.8666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.832,
+                        acc_y_g: -0.1952,
+                        acc_z_g: 1.1722667,
+                        gyr_x_dps: 0.8666667,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -0.93333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.824,
+                        acc_y_g: -0.2016,
+                        acc_z_g: 1.1701334,
+                        gyr_x_dps: 0.53333336,
+                        gyr_y_dps: 1.0666667,
+                        gyr_z_dps: -0.8666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.832,
+                        acc_y_g: -0.21226667,
+                        acc_z_g: 1.1685333,
+                        gyr_x_dps: 0.33333334,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -0.8666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8373333,
+                        acc_y_g: -0.20266667,
+                        acc_z_g: 1.1621333,
+                        gyr_x_dps: 0.4,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -0.93333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.84,
+                        acc_y_g: -0.2048,
+                        acc_z_g: 1.1685333,
+                        gyr_x_dps: 0.6,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -1.0666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8325334,
+                        acc_y_g: -0.192,
+                        acc_z_g: 1.1562667,
+                        gyr_x_dps: 0.73333335,
+                        gyr_y_dps: 0.6666667,
+                        gyr_z_dps: -1.1333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8325334,
+                        acc_y_g: -0.18933333,
+                        acc_z_g: 1.1493334,
+                        gyr_x_dps: 0.6,
+                        gyr_y_dps: 0.53333336,
+                        gyr_z_dps: -1.2666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8277333,
+                        acc_y_g: -0.19466667,
+                        acc_z_g: 1.1509334,
+                        gyr_x_dps: 0.6666667,
+                        gyr_y_dps: 0.4,
+                        gyr_z_dps: -1.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8261334,
+                        acc_y_g: -0.20533334,
+                        acc_z_g: 1.1466666,
+                        gyr_x_dps: 0.73333335,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -1.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8309333,
+                        acc_y_g: -0.20853333,
+                        acc_z_g: 1.1504,
+                        gyr_x_dps: 1.1333333,
+                        gyr_y_dps: 0.2,
+                        gyr_z_dps: -1.6
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8368,
+                        acc_y_g: -0.20853333,
+                        acc_z_g: 1.1445333,
+                        gyr_x_dps: 1.4666667,
+                        gyr_y_dps: 0.0,
+                        gyr_z_dps: -1.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8448,
+                        acc_y_g: -0.20533334,
+                        acc_z_g: 1.1578667,
+                        gyr_x_dps: 1.8666667,
+                        gyr_y_dps: 16.866667,
+                        gyr_z_dps: -1.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8426666,
+                        acc_y_g: -0.2128,
+                        acc_z_g: 1.1664,
+                        gyr_x_dps: 2.2,
+                        gyr_y_dps: -0.33333334,
+                        gyr_z_dps: -1.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8341334,
+                        acc_y_g: -0.2144,
+                        acc_z_g: 1.1626667,
+                        gyr_x_dps: 2.3333333,
+                        gyr_y_dps: -0.4,
+                        gyr_z_dps: -1.6666666
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8357333,
+                        acc_y_g: -0.216,
+                        acc_z_g: 1.168,
+                        gyr_x_dps: 2.4,
+                        gyr_y_dps: -0.46666667,
+                        gyr_z_dps: -1.6666666
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8309333,
+                        acc_y_g: -0.21546666,
+                        acc_z_g: 1.1701334,
+                        gyr_x_dps: 2.5333333,
+                        gyr_y_dps: -0.53333336,
+                        gyr_z_dps: -1.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8346666,
+                        acc_y_g: -0.20853333,
+                        acc_z_g: 1.1717334,
+                        gyr_x_dps: 2.6,
+                        gyr_y_dps: -0.46666667,
+                        gyr_z_dps: -1.8666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8346666,
+                        acc_y_g: -0.19786666,
+                        acc_z_g: 1.1733333,
+                        gyr_x_dps: 2.6,
+                        gyr_y_dps: -0.46666667,
+                        gyr_z_dps: -2.0
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8261334,
+                        acc_y_g: -0.19733334,
+                        acc_z_g: 1.1712,
+                        gyr_x_dps: 2.2666667,
+                        gyr_y_dps: -0.46666667,
+                        gyr_z_dps: -2.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8234667,
+                        acc_y_g: -0.19893333,
+                        acc_z_g: 1.1738666,
+                        gyr_x_dps: 2.0,
+                        gyr_y_dps: -0.46666667,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8229333,
+                        acc_y_g: -0.20426667,
+                        acc_z_g: 1.1754667,
+                        gyr_x_dps: 2.0,
+                        gyr_y_dps: -0.33333334,
+                        gyr_z_dps: -2.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8256,
+                        acc_y_g: -0.20533334,
+                        acc_z_g: 1.1781334,
+                        gyr_x_dps: 2.0666666,
+                        gyr_y_dps: -0.2,
+                        gyr_z_dps: -2.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8314667,
+                        acc_y_g: -0.208,
+                        acc_z_g: 1.1829333,
+                        gyr_x_dps: 2.2,
+                        gyr_y_dps: -0.06666667,
+                        gyr_z_dps: -2.6
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8394667,
+                        acc_y_g: -0.2032,
+                        acc_z_g: 1.1776,
+                        gyr_x_dps: 2.2666667,
+                        gyr_y_dps: -17.066668,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8330667,
+                        acc_y_g: -0.21013333,
+                        acc_z_g: 1.1754667,
+                        gyr_x_dps: 2.3333333,
+                        gyr_y_dps: 0.06666667,
+                        gyr_z_dps: -2.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8352,
+                        acc_y_g: -0.2256,
+                        acc_z_g: 1.1738666,
+                        gyr_x_dps: 2.2666667,
+                        gyr_y_dps: 0.06666667,
+                        gyr_z_dps: -2.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8314667,
+                        acc_y_g: -0.2272,
+                        acc_z_g: 1.1754667,
+                        gyr_x_dps: 2.2666667,
+                        gyr_y_dps: 0.2,
+                        gyr_z_dps: -2.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8288,
+                        acc_y_g: -0.22453333,
+                        acc_z_g: 1.1733333,
+                        gyr_x_dps: 2.4,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8309333,
+                        acc_y_g: -0.2256,
+                        acc_z_g: 1.168,
+                        gyr_x_dps: 2.4666667,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8410667,
+                        acc_y_g: -0.224,
+                        acc_z_g: 1.1610667,
+                        gyr_x_dps: 2.4666667,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.84,
+                        acc_y_g: -0.2272,
+                        acc_z_g: 1.1594666,
+                        gyr_x_dps: 2.4666667,
+                        gyr_y_dps: 0.33333334,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8362666,
+                        acc_y_g: -0.23093334,
+                        acc_z_g: 1.1626667,
+                        gyr_x_dps: 2.6666667,
+                        gyr_y_dps: 0.33333334,
+                        gyr_z_dps: -2.6
+                    },
+                    ImuSample {
+                        acc_x_g: -1.84,
+                        acc_y_g: -0.23413333,
+                        acc_z_g: 1.16,
+                        gyr_x_dps: 2.8666666,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -2.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8416,
+                        acc_y_g: -0.23466666,
+                        acc_z_g: 1.1546667,
+                        gyr_x_dps: 3.0666666,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -2.4666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8325334,
+                        acc_y_g: -0.2208,
+                        acc_z_g: 1.1557333,
+                        gyr_x_dps: 3.2,
+                        gyr_y_dps: 0.2,
+                        gyr_z_dps: -2.4666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8288,
+                        acc_y_g: -0.20853333,
+                        acc_z_g: 1.16,
+                        gyr_x_dps: 3.1333334,
+                        gyr_y_dps: 0.0,
+                        gyr_z_dps: -2.4666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8314667,
+                        acc_y_g: -0.21013333,
+                        acc_z_g: 1.1605333,
+                        gyr_x_dps: 3.0,
+                        gyr_y_dps: 17.0,
+                        gyr_z_dps: -2.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8330667,
+                        acc_y_g: -0.21973333,
+                        acc_z_g: 1.1621333,
+                        gyr_x_dps: 3.0,
+                        gyr_y_dps: -17.066668,
+                        gyr_z_dps: -2.3333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8368,
+                        acc_y_g: -0.22346666,
+                        acc_z_g: 1.1648,
+                        gyr_x_dps: 3.3333333,
+                        gyr_y_dps: 17.0,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8346666,
+                        acc_y_g: -0.2208,
+                        acc_z_g: 1.1690667,
+                        gyr_x_dps: 3.7333333,
+                        gyr_y_dps: -0.06666667,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8272,
+                        acc_y_g: -0.21173333,
+                        acc_z_g: 1.1738666,
+                        gyr_x_dps: 4.0,
+                        gyr_y_dps: -0.13333334,
+                        gyr_z_dps: -2.2666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8229333,
+                        acc_y_g: -0.20586666,
+                        acc_z_g: 1.1749333,
+                        gyr_x_dps: 4.0666666,
+                        gyr_y_dps: -0.13333334,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8165333,
+                        acc_y_g: -0.2,
+                        acc_z_g: 1.1781334,
+                        gyr_x_dps: 3.9333334,
+                        gyr_y_dps: -0.06666667,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8090667,
+                        acc_y_g: -0.19093333,
+                        acc_z_g: 1.1824,
+                        gyr_x_dps: 3.6666667,
+                        gyr_y_dps: -17.0,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8138666,
+                        acc_y_g: -0.1872,
+                        acc_z_g: 1.1824,
+                        gyr_x_dps: 3.2666667,
+                        gyr_y_dps: 0.26666668,
+                        gyr_z_dps: -2.2666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.816,
+                        acc_y_g: -0.1904,
+                        acc_z_g: 1.1824,
+                        gyr_x_dps: 3.0666666,
+                        gyr_y_dps: 0.46666667,
+                        gyr_z_dps: -2.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8202667,
+                        acc_y_g: -0.1936,
+                        acc_z_g: 1.1824,
+                        gyr_x_dps: 3.0666666,
+                        gyr_y_dps: 0.6,
+                        gyr_z_dps: -2.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8229333,
+                        acc_y_g: -0.19093333,
+                        acc_z_g: 1.1733333,
+                        gyr_x_dps: 3.2,
+                        gyr_y_dps: 0.73333335,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8266667,
+                        acc_y_g: -0.19893333,
+                        acc_z_g: 1.1722667,
+                        gyr_x_dps: 3.2666667,
+                        gyr_y_dps: 0.8,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8272,
+                        acc_y_g: -0.208,
+                        acc_z_g: 1.1712,
+                        gyr_x_dps: 3.3333333,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -2.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8330667,
+                        acc_y_g: -0.21493334,
+                        acc_z_g: 1.1754667,
+                        gyr_x_dps: 3.5333333,
+                        gyr_y_dps: 0.93333334,
+                        gyr_z_dps: -2.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8325334,
+                        acc_y_g: -0.21493334,
+                        acc_z_g: 1.176,
+                        gyr_x_dps: 3.7333333,
+                        gyr_y_dps: 0.93333334,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8298666,
+                        acc_y_g: -0.19786666,
+                        acc_z_g: 1.1610667,
+                        gyr_x_dps: 3.9333334,
+                        gyr_y_dps: 0.93333334,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8288,
+                        acc_y_g: -0.1904,
+                        acc_z_g: 1.1562667,
+                        gyr_x_dps: 3.8666666,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -2.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8314667,
+                        acc_y_g: -0.192,
+                        acc_z_g: 1.1509334,
+                        gyr_x_dps: 3.4666667,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -2.8666666
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8448,
+                        acc_y_g: -0.19306667,
+                        acc_z_g: 1.1424,
+                        gyr_x_dps: 3.0666666,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -3.0
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8416,
+                        acc_y_g: -0.2048,
+                        acc_z_g: 1.1424,
+                        gyr_x_dps: 3.0,
+                        gyr_y_dps: 0.8,
+                        gyr_z_dps: -3.1333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8485334,
+                        acc_y_g: -0.21013333,
+                        acc_z_g: 1.1402667,
+                        gyr_x_dps: 3.0666666,
+                        gyr_y_dps: 0.73333335,
+                        gyr_z_dps: -3.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8496,
+                        acc_y_g: -0.20266667,
+                        acc_z_g: 1.1333333,
+                        gyr_x_dps: 3.2,
+                        gyr_y_dps: 0.73333335,
+                        gyr_z_dps: -3.1333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8528,
+                        acc_y_g: -0.20213333,
+                        acc_z_g: 1.1381333,
+                        gyr_x_dps: 3.1333334,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -3.0666666
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8602667,
+                        acc_y_g: -0.20373334,
+                        acc_z_g: 1.1381333,
+                        gyr_x_dps: 2.8,
+                        gyr_y_dps: 0.93333334,
+                        gyr_z_dps: -2.9333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8464,
+                        acc_y_g: -0.2064,
+                        acc_z_g: 1.1413333,
+                        gyr_x_dps: 2.5333333,
+                        gyr_y_dps: 0.93333334,
+                        gyr_z_dps: -2.8
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8469334,
+                        acc_y_g: -0.216,
+                        acc_z_g: 1.1504,
+                        gyr_x_dps: 2.4666667,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8432,
+                        acc_y_g: -0.2128,
+                        acc_z_g: 1.1477333,
+                        gyr_x_dps: 2.4,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8304,
+                        acc_y_g: -0.21333334,
+                        acc_z_g: 1.1472,
+                        gyr_x_dps: 2.3333333,
+                        gyr_y_dps: 1.0666667,
+                        gyr_z_dps: -2.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8298666,
+                        acc_y_g: -0.19626667,
+                        acc_z_g: 1.1562667,
+                        gyr_x_dps: 2.2,
+                        gyr_y_dps: 1.2,
+                        gyr_z_dps: -2.6
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8453333,
+                        acc_y_g: -0.20213333,
+                        acc_z_g: 1.1504,
+                        gyr_x_dps: 1.9333333,
+                        gyr_y_dps: 1.2,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8586667,
+                        acc_y_g: -0.20586666,
+                        acc_z_g: 1.1509334,
+                        gyr_x_dps: 1.6,
+                        gyr_y_dps: 1.2,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8464,
+                        acc_y_g: -0.2,
+                        acc_z_g: 1.1546667,
+                        gyr_x_dps: 1.3333334,
+                        gyr_y_dps: 1.1333333,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8501333,
+                        acc_y_g: -0.2032,
+                        acc_z_g: 1.1488,
+                        gyr_x_dps: 1.0666667,
+                        gyr_y_dps: 1.3333334,
+                        gyr_z_dps: -2.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8469334,
+                        acc_y_g: -0.19946666,
+                        acc_z_g: 1.1450666,
+                        gyr_x_dps: 0.6666667,
+                        gyr_y_dps: 1.6,
+                        gyr_z_dps: -2.6666667
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8618667,
+                        acc_y_g: -0.19786666,
+                        acc_z_g: 1.1424,
+                        gyr_x_dps: 0.53333336,
+                        gyr_y_dps: 1.8,
+                        gyr_z_dps: -2.8666666
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8629333,
+                        acc_y_g: -0.20106667,
+                        acc_z_g: 1.1301334,
+                        gyr_x_dps: 0.2,
+                        gyr_y_dps: 1.8,
+                        gyr_z_dps: -2.7333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8645333,
+                        acc_y_g: -0.2144,
+                        acc_z_g: 1.1333333,
+                        gyr_x_dps: 0.06666667,
+                        gyr_y_dps: 1.7333333,
+                        gyr_z_dps: -2.5333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8608,
+                        acc_y_g: -0.22026667,
+                        acc_z_g: 1.1232,
+                        gyr_x_dps: 0.06666667,
+                        gyr_y_dps: 1.7333333,
+                        gyr_z_dps: -2.3333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8437333,
+                        acc_y_g: -0.21386667,
+                        acc_z_g: 1.1136,
+                        gyr_x_dps: 0.13333334,
+                        gyr_y_dps: 1.7333333,
+                        gyr_z_dps: -2.1333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8464,
+                        acc_y_g: -0.21813333,
+                        acc_z_g: 1.1082667,
+                        gyr_x_dps: 0.06666667,
+                        gyr_y_dps: 1.7333333,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8608,
+                        acc_y_g: -0.2336,
+                        acc_z_g: 1.0986667,
+                        gyr_x_dps: 16.933332,
+                        gyr_y_dps: 1.6,
+                        gyr_z_dps: -2.2
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8656,
+                        acc_y_g: -0.2384,
+                        acc_z_g: 1.0944,
+                        gyr_x_dps: -0.26666668,
+                        gyr_y_dps: 1.4,
+                        gyr_z_dps: -2.1333334
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8688,
+                        acc_y_g: -0.23413333,
+                        acc_z_g: 1.1077334,
+                        gyr_x_dps: -0.4,
+                        gyr_y_dps: 1.2666667,
+                        gyr_z_dps: -1.9333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8629333,
+                        acc_y_g: -0.23786667,
+                        acc_z_g: 1.1125333,
+                        gyr_x_dps: -0.8666667,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -1.6
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8714666,
+                        acc_y_g: -0.2368,
+                        acc_z_g: 1.1285334,
+                        gyr_x_dps: -1.2666667,
+                        gyr_y_dps: 1.0,
+                        gyr_z_dps: -1.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8725333,
+                        acc_y_g: -0.24906667,
+                        acc_z_g: 1.1365334,
+                        gyr_x_dps: -1.7333333,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -1.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8768,
+                        acc_y_g: -0.2384,
+                        acc_z_g: 1.1482667,
+                        gyr_x_dps: -1.8666667,
+                        gyr_y_dps: 0.73333335,
+                        gyr_z_dps: -1.1333333
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8581333,
+                        acc_y_g: -0.2496,
+                        acc_z_g: 1.1392,
+                        gyr_x_dps: -1.7333333,
+                        gyr_y_dps: 0.6666667,
+                        gyr_z_dps: -0.73333335
+                    },
+                    ImuSample {
+                        acc_x_g: -1.8437333,
+                        acc_y_g: -0.23413333,
+                        acc_z_g: 1.1434667,
+                        gyr_x_dps: -1.5333333,
+                        gyr_y_dps: 0.8666667,
+                        gyr_z_dps: -0.4
+                    },
+                    ImuSample {
+                        acc_x_g: -1.856,
+                        acc_y_g: -0.216,
+                        acc_z_g: 1.0949334,
+                        gyr_x_dps: -0.06666667,
+                        gyr_y_dps: 16.133333,
+                        gyr_z_dps: -17.066668
+                    },
+                    ImuSample {
+                        acc_x_g: -0.2176,
+                        acc_y_g: 1.152,
+                        acc_z_g: 0.1904,
+                        gyr_x_dps: -0.2,
+                        gyr_y_dps: -0.8,
+                        gyr_z_dps: 17.066668
+                    }
+                ]
+                .to_vec()
             })
         );
 

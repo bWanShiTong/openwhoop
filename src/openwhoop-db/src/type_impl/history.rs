@@ -50,7 +50,13 @@ impl DatabaseHandler {
                 .filter_map(|rr| rr.parse().ok())
                 .collect(),
             activity: model.activity.map(Activity::from).unwrap(),
-            imu_data: None,
+            imu_data: {
+                if let Some(data) = model.imu_data {
+                    serde_json::from_value(data).unwrap()
+                } else {
+                    Default::default()
+                }
+            },
         }
     }
 }

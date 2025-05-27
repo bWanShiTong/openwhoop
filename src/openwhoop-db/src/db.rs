@@ -8,6 +8,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use openwhoop_algos::SleepCycle;
+use whoop::HistoryReading;
 
 #[derive(Clone)]
 pub struct DatabaseHandler {
@@ -45,22 +46,17 @@ impl DatabaseHandler {
         Ok(packet)
     }
 
-    pub async fn create_reading(
-        &self,
-        unix: u64,
-        bpm: u8,
-        rr: Vec<u16>,
-        activity: i64,
-    ) -> anyhow::Result<()> {
-        let time = timestamp_to_local(unix);
+    pub async fn create_reading(&self, reading: HistoryReading) -> anyhow::Result<()> {
+        let time = timestamp_to_local(reading.unix);
 
         let packet = db_entities::heart_rate::ActiveModel {
             id: NotSet,
-            bpm: Set(bpm as i16),
+            bpm: Set(reading.bpm as i16),
             time: Set(time),
-            rr_intervals: Set(rr_to_string(rr)),
-            activity: Set(Some(activity)),
+            rr_intervals: Set(rr_to_string(reading.rr)),
+            activity: Set(Some(i64::from(reading.activity))),
             stress: NotSet,
+            imu_data: Set(Some(serde_json::to_value(reading.imu_data)?)),
         };
 
         let _model = db_entities::heart_rate::Entity::insert(packet)

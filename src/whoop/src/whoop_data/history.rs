@@ -6,10 +6,10 @@ pub struct HistoryReading {
     pub bpm: u8,
     pub rr: Vec<u16>,
     pub activity: u32,
-    pub imu_data: Option<Vec<ImuSample>>,
+    pub imu_data: Vec<ImuSample>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImuSample {
     pub acc_x_g: f32,
     pub acc_y_g: f32,

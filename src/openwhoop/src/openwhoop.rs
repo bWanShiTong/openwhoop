@@ -3,7 +3,7 @@ use chrono::{DateTime, Local, TimeDelta};
 use db_entities::packets;
 use openwhoop_db::{DatabaseHandler, SearchHistory};
 use whoop::{
-    Activity, HistoryReading, WhoopData, WhoopPacket,
+    Activity, WhoopData, WhoopPacket,
     constants::{CMD_FROM_STRAP, DATA_FROM_STRAP, MetadataType},
 };
 
@@ -89,18 +89,17 @@ impl OpenWhoop {
     async fn handle_data(&mut self, data: WhoopData) -> anyhow::Result<Option<WhoopPacket>> {
         match data {
             WhoopData::HistoryReading(hr) if hr.is_valid() => {
-                let HistoryReading {
-                    unix,
-                    bpm,
-                    rr,
-                    activity,
-                    imu_data: _imu,
-                } = hr;
+                let ptime = DateTime::from_timestamp_millis(hr.unix as i64)
+                    .unwrap()
+                    .with_timezone(&Local)
+                    .format("%Y-%m-%d %H:%M:%S");
 
-                info!(target: "HistoryReading", "time: {}, bpm: {}", DateTime::from_timestamp_millis(unix as i64).unwrap().with_timezone(&Local).format("%Y-%m-%d %H:%M:%S"), bpm);
-                self.database
-                    .create_reading(unix, bpm, rr, activity as i64)
-                    .await?;
+                if hr.imu_data.is_empty() {
+                    info!(target: "HistoryReading", "time: {}, bpm: {}", ptime, hr.bpm);
+                } else {
+                    info!(target: "HistoryReading", "time: {}, bpm: {}, (IMU)", ptime, hr.bpm);
+                }
+                self.database.create_reading(hr).await?;
             }
             WhoopData::HistoryMetadata { data, cmd, .. } => match cmd {
                 MetadataType::HistoryComplete => {}
