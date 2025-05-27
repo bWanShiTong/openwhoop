@@ -47,7 +47,7 @@ impl DatabaseHandler {
 
     pub async fn create_reading(
         &self,
-        unix: u32,
+        unix: u64,
         bpm: u8,
         rr: Vec<u16>,
         activity: i64,
@@ -136,9 +136,9 @@ impl DatabaseHandler {
     }
 }
 
-fn timestamp_to_local(unix: u32) -> NaiveDateTime {
+fn timestamp_to_local(unix: u64) -> NaiveDateTime {
     let dt = Local
-        .timestamp_opt(unix as i64, 0)
+        .timestamp_millis_opt(unix as i64)
         .single()
         .expect("I don't know");
 

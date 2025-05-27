@@ -50,6 +50,7 @@ impl DatabaseHandler {
                 .filter_map(|rr| rr.parse().ok())
                 .collect(),
             activity: model.activity.map(Activity::from).unwrap(),
+            imu_data: None,
         }
     }
 }

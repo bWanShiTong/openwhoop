@@ -15,4 +15,5 @@ pub enum WhoopError {
     InvalidCommandType(u8),
     InvalidConsoleLog,
     Unimplemented,
+    InvalidRRCount,
 }

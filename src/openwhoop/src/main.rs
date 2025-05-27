@@ -171,7 +171,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         OpenWhoopCommand::ReRun => {
-            let whoop = OpenWhoop::new(db_handler.clone());
+            let mut whoop = OpenWhoop::new(db_handler.clone());
             let mut id = 0;
             loop {
                 let packets = db_handler.get_packets(id).await?;

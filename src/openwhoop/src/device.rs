@@ -135,7 +135,6 @@ impl WhoopDevice {
                         false => Model { id: 0, uuid: notification.uuid, bytes: notification.value },
                     };
 
-                    dbg!(hex::encode(&packet.bytes));
                     if let Some(packet) = self.whoop.handle_packet(packet).await?{
                         self.send_command(packet).await?;
                     }
