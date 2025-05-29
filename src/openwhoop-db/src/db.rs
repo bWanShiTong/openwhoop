@@ -73,6 +73,40 @@ impl DatabaseHandler {
         Ok(())
     }
 
+    pub async fn create_readings(&self, readings: Vec<HistoryReading>) -> anyhow::Result<()> {
+        if readings.is_empty() {
+            return Ok(());
+        }
+        let payloads = readings
+            .into_iter()
+            .map(|r| {
+                let time = timestamp_to_local(r.unix);
+                Ok(db_entities::heart_rate::ActiveModel {
+                    id: NotSet,
+                    bpm: Set(r.bpm as i16),
+                    time: Set(time),
+                    rr_intervals: Set(rr_to_string(r.rr)),
+                    activity: Set(Some(i64::from(r.activity))),
+                    stress: NotSet,
+                    imu_data: Set(Some(serde_json::to_value(r.imu_data)?)),
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        db_entities::heart_rate::Entity::insert_many(payloads)
+            .on_conflict(
+                OnConflict::column(db_entities::heart_rate::Column::Time)
+                    .update_column(db_entities::heart_rate::Column::Bpm)
+                    .update_column(db_entities::heart_rate::Column::RrIntervals)
+                    .update_column(db_entities::heart_rate::Column::Activity)
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn get_packets(&self, id: i32) -> anyhow::Result<Vec<packets::Model>> {
         let stream = packets::Entity::find()
             .filter(packets::Column::Id.gt(id))

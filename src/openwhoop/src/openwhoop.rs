@@ -3,7 +3,7 @@ use chrono::{DateTime, Local, TimeDelta};
 use db_entities::packets;
 use openwhoop_db::{DatabaseHandler, SearchHistory};
 use whoop::{
-    Activity, WhoopData, WhoopPacket,
+    Activity, HistoryReading, WhoopData, WhoopPacket,
     constants::{CMD_FROM_STRAP, DATA_FROM_STRAP, MetadataType},
 };
 
@@ -17,6 +17,8 @@ use crate::{
 pub struct OpenWhoop {
     pub database: DatabaseHandler,
     pub packet: Option<WhoopPacket>,
+    pub last_history_packet: Option<HistoryReading>,
+    pub history_packets: Vec<HistoryReading>,
 }
 
 impl OpenWhoop {
@@ -24,6 +26,8 @@ impl OpenWhoop {
         Self {
             database,
             packet: None,
+            last_history_packet: None,
+            history_packets: Vec::new(),
         }
     }
 
@@ -89,6 +93,17 @@ impl OpenWhoop {
     async fn handle_data(&mut self, data: WhoopData) -> anyhow::Result<Option<WhoopPacket>> {
         match data {
             WhoopData::HistoryReading(hr) if hr.is_valid() => {
+                if let Some(last_packet) = self.last_history_packet.as_mut() {
+                    if last_packet.unix == hr.unix && last_packet.bpm == hr.bpm {
+                        return Ok(None);
+                    } else {
+                        last_packet.unix = hr.unix;
+                        last_packet.bpm = hr.bpm;
+                    }
+                } else {
+                    self.last_history_packet = Some(hr.clone());
+                }
+
                 let ptime = DateTime::from_timestamp_millis(hr.unix as i64)
                     .unwrap()
                     .with_timezone(&Local)
@@ -99,12 +114,17 @@ impl OpenWhoop {
                 } else {
                     info!(target: "HistoryReading", "time: {}, bpm: {}, (IMU)", ptime, hr.bpm);
                 }
-                self.database.create_reading(hr).await?;
+
+                self.history_packets.push(hr);
             }
             WhoopData::HistoryMetadata { data, cmd, .. } => match cmd {
                 MetadataType::HistoryComplete => {}
                 MetadataType::HistoryStart => {}
                 MetadataType::HistoryEnd => {
+                    self.database
+                        .create_readings(std::mem::take(&mut self.history_packets))
+                        .await?;
+
                     let packet = WhoopPacket::history_end(data);
                     return Ok(Some(packet));
                 }

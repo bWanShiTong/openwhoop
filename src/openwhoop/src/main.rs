@@ -110,6 +110,13 @@ pub enum OpenWhoopCommand {
     /// Generate Shell completions
     ///
     Completions { shell: Shell },
+    ///
+    /// Enable IMU data
+    ///
+    EnableImu {
+        #[arg(long, env)]
+        whoop: DeviceId,
+    },
 }
 
 #[tokio::main]
@@ -316,6 +323,16 @@ async fn main() -> anyhow::Result<()> {
             let mut whoop = WhoopDevice::new(peripheral, adapter, db_handler, false);
             whoop.connect().await?;
             whoop.get_version().await?;
+            Ok(())
+        }
+        OpenWhoopCommand::EnableImu { whoop } => {
+            let peripheral = scan_command(&adapter, Some(whoop)).await?;
+            let mut whoop = WhoopDevice::new(peripheral, adapter, db_handler, false);
+            whoop.connect().await?;
+            whoop
+                .send_command(WhoopPacket::toggle_r7_data_collection())
+                .await?;
+
             Ok(())
         }
         OpenWhoopCommand::Completions { shell } => {

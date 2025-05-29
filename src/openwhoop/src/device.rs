@@ -103,8 +103,6 @@ impl WhoopDevice {
     pub async fn sync_history(&mut self, should_exit: Arc<AtomicBool>) -> anyhow::Result<()> {
         let mut notifications = self.peripheral.notifications().await?;
 
-        self.send_command(WhoopPacket::toggle_r7_data_collection())
-            .await?;
         self.send_command(WhoopPacket::history_start()).await?;
 
         'a: loop {
