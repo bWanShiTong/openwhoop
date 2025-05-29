@@ -112,7 +112,7 @@ impl WhoopPacket {
             PacketType::Command,
             0,
             CommandNumber::ToggleR7DataCollection.as_u8(),
-            vec![41, 1],
+            vec![0x01],
         )
     }
 

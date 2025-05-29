@@ -8,6 +8,8 @@ pub struct WhoopPacket {
     pub seq: u8,
     pub cmd: u8,
     pub data: Vec<u8>,
+    pub partial: bool,
+    pub size: usize,
 }
 
 impl WhoopPacket {
@@ -22,7 +24,9 @@ impl WhoopPacket {
             packet_type,
             seq,
             cmd,
+            size: data.len(),
             data,
+            partial: false,
         }
     }
 
@@ -45,16 +49,19 @@ impl WhoopPacket {
             return Err(WhoopError::InvalidHeaderCrc8);
         }
 
-        // Verify data CRC32
-        let length = u16::from_le_bytes(length_buffer) as usize;
-        if length > data.len() || length < 8 {
+        let length = usize::from(u16::from_le_bytes(length_buffer));
+        let partial = data.len() < length;
+        if length < 8 {
             return Err(WhoopError::InvalidPacketLength);
         }
 
-        let expected_crc32 = u32::from_le_bytes(data.read_end()?);
-        let calculated_crc32 = Self::crc32(&data);
-        if calculated_crc32 != expected_crc32 {
-            return Err(WhoopError::InvalidDataCrc32);
+        // Verify data CRC32
+        if !partial {
+            let expected_crc32 = u32::from_le_bytes(data.read_end()?);
+            let calculated_crc32 = Self::crc32(&data);
+            if calculated_crc32 != expected_crc32 {
+                return Err(WhoopError::InvalidDataCrc32);
+            }
         }
 
         Ok(Self {
@@ -66,6 +73,8 @@ impl WhoopPacket {
             seq: data.pop_front()?,
             cmd: data.pop_front()?,
             data,
+            partial,
+            size: length,
         })
     }
 

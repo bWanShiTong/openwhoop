@@ -11,5 +11,6 @@ openwhoop-algos = { version = "0.1.0", path = "../openwhoop-algos" }
 openwhoop-migration = { version = "0.1.0", path = "../sea-migrations" }
 openwhoop-types = { version = "0.1.0", path = "../openwhoop-types" }
 sea-orm = "1.1.8"
+serde_json = "1.0.140"
 uuid = "1.16.0"
 whoop = { version = "0.1.0", path = "../whoop" }

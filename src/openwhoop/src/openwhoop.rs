@@ -16,11 +16,19 @@ use crate::{
 
 pub struct OpenWhoop {
     pub database: DatabaseHandler,
+    pub packet: Option<WhoopPacket>,
+    pub last_history_packet: Option<HistoryReading>,
+    pub history_packets: Vec<HistoryReading>,
 }
 
 impl OpenWhoop {
     pub fn new(database: DatabaseHandler) -> Self {
-        Self { database }
+        Self {
+            database,
+            packet: None,
+            last_history_packet: None,
+            history_packets: Vec::new(),
+        }
     }
 
     pub async fn store_packet(
@@ -36,45 +44,36 @@ impl OpenWhoop {
     }
 
     pub async fn handle_packet(
-        &self,
+        &mut self,
         packet: packets::Model,
     ) -> anyhow::Result<Option<WhoopPacket>> {
-        match packet.uuid {
+        let data = match packet.uuid {
             DATA_FROM_STRAP => {
-                let packet = WhoopPacket::from_data(packet.bytes)?;
+                let packet = if let Some(mut whoop_packet) = self.packet.take() {
+                    // TODO: maybe not needed but it would be nice to handle packet length here
+                    // so if next packet contains end of one and start of another it is handled
+
+                    whoop_packet.data.extend_from_slice(&packet.bytes);
+
+                    if whoop_packet.data.len() + 3 >= whoop_packet.size {
+                        whoop_packet
+                    } else {
+                        self.packet = Some(whoop_packet);
+                        return Ok(None);
+                    }
+                } else {
+                    let packet = WhoopPacket::from_data(packet.bytes)?;
+                    if packet.partial {
+                        self.packet = Some(packet);
+                        return Ok(None);
+                    }
+                    packet
+                };
 
                 let Ok(data) = WhoopData::from_packet(packet) else {
                     return Ok(None);
                 };
-                match data {
-                    WhoopData::HistoryReading(hr) if hr.is_valid() => {
-                        let HistoryReading {
-                            unix,
-                            bpm,
-                            rr,
-                            activity,
-                        } = hr;
-
-                        info!(target: "HistoryReading", "time: {}, bpm: {}", DateTime::from_timestamp(unix as i64, 0).unwrap().with_timezone(&Local).format("%Y-%m-%d %H:%M:%S"), bpm);
-                        self.database
-                            .create_reading(unix, bpm, rr, activity as i64)
-                            .await?;
-                    }
-                    WhoopData::HistoryMetadata { data, cmd, .. } => match cmd {
-                        MetadataType::HistoryComplete => return Ok(None),
-                        MetadataType::HistoryStart => {}
-                        MetadataType::HistoryEnd => {
-                            let packet = WhoopPacket::history_end(data);
-                            return Ok(Some(packet));
-                        }
-                    },
-                    WhoopData::ConsoleLog { log, .. } => {
-                        trace!(target: "ConsoleLog", "{}", log);
-                    }
-                    WhoopData::RunAlarm { .. } => {}
-                    WhoopData::Event { .. } => {}
-                    _ => {}
-                }
+                data
             }
             CMD_FROM_STRAP => {
                 let packet = WhoopPacket::from_data(packet.bytes)?;
@@ -82,14 +81,63 @@ impl OpenWhoop {
                 let Ok(data) = WhoopData::from_packet(packet) else {
                     return Ok(None);
                 };
-                if let WhoopData::VersionInfo { harvard, boylston } = data {
-                    info!("version harvard {} boylston {}", harvard, boylston);
-                    return Ok(Some(WhoopPacket::version()));
+
+                data
+            }
+            _ => return Ok(None),
+        };
+
+        self.handle_data(data).await
+    }
+
+    async fn handle_data(&mut self, data: WhoopData) -> anyhow::Result<Option<WhoopPacket>> {
+        match data {
+            WhoopData::HistoryReading(hr) if hr.is_valid() => {
+                if let Some(last_packet) = self.last_history_packet.as_mut() {
+                    if last_packet.unix == hr.unix && last_packet.bpm == hr.bpm {
+                        return Ok(None);
+                    } else {
+                        last_packet.unix = hr.unix;
+                        last_packet.bpm = hr.bpm;
+                    }
+                } else {
+                    self.last_history_packet = Some(hr.clone());
                 }
+
+                let ptime = DateTime::from_timestamp_millis(hr.unix as i64)
+                    .unwrap()
+                    .with_timezone(&Local)
+                    .format("%Y-%m-%d %H:%M:%S");
+
+                if hr.imu_data.is_empty() {
+                    info!(target: "HistoryReading", "time: {}, bpm: {}", ptime, hr.bpm);
+                } else {
+                    info!(target: "HistoryReading", "time: {}, bpm: {}, (IMU)", ptime, hr.bpm);
+                }
+
+                self.history_packets.push(hr);
             }
-            _ => {
-                // todo!()
+            WhoopData::HistoryMetadata { data, cmd, .. } => match cmd {
+                MetadataType::HistoryComplete => {}
+                MetadataType::HistoryStart => {}
+                MetadataType::HistoryEnd => {
+                    self.database
+                        .create_readings(std::mem::take(&mut self.history_packets))
+                        .await?;
+
+                    let packet = WhoopPacket::history_end(data);
+                    return Ok(Some(packet));
+                }
+            },
+            WhoopData::ConsoleLog { log, .. } => {
+                trace!(target: "ConsoleLog", "{}", log);
             }
+            WhoopData::RunAlarm { .. } => {}
+            WhoopData::Event { .. } => {}
+            WhoopData::VersionInfo { harvard, boylston } => {
+                info!("version harvard {} boylston {}", harvard, boylston);
+            }
+            _ => {}
         }
 
         Ok(None)

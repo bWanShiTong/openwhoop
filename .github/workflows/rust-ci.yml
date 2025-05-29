@@ -1,4 +1,4 @@
-name: lint
+name: CI
 
 on:
   push:
@@ -37,3 +37,22 @@ jobs:
         with:
           command: clippy
           args: --all-targets -- -D warnings
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup build dependencies
+        run: |
+          sudo apt update
+          sudo apt install libdbus-1-dev pkg-config -y
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.87
+          components: rustfmt, clippy
+          default: true
+      - uses: actions-rs/cargo@v1
+        name: Run tests
+        with:
+          command: test

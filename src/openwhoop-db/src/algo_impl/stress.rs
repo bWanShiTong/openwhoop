@@ -30,6 +30,7 @@ impl DatabaseHandler {
             rr_intervals: NotSet,
             activity: NotSet,
             stress: Set(Some(stress.score)),
+            imu_data: NotSet,
         };
 
         heart_rate::Entity::update_many()
