@@ -98,7 +98,7 @@ impl<'a> DatabaseSync<'a> {
         let unsynced = sleep_cycles::Entity::find()
             .filter(sleep_cycles::Column::Synced.eq(false));
 
-        let total = unsynced.clone().count(source).await? as u64;
+        let total = unsynced.clone().count(source).await?;
         let pb = mp.add(ProgressBar::new(total));
         pb.set_style(bar_style());
         pb.set_prefix(label.to_string());
@@ -122,7 +122,7 @@ impl<'a> DatabaseSync<'a> {
                 break;
             }
 
-            let batch_len = rows.len() as u64;
+            let batch_len = u64::try_from(rows.len())?;
 
             // Deduplicate by sleep_id
             let mut deduped: HashMap<chrono::NaiveDate, sleep_cycles::Model> = HashMap::new();
@@ -204,7 +204,7 @@ impl<'a> DatabaseSync<'a> {
         let unsynced = activities::Entity::find()
             .filter(activities::Column::Synced.eq(false));
 
-        let total = unsynced.clone().count(source).await? as u64;
+        let total = unsynced.clone().count(source).await?;
         let pb = mp.add(ProgressBar::new(total));
         pb.set_style(bar_style());
         pb.set_prefix(label.to_string());
@@ -228,7 +228,7 @@ impl<'a> DatabaseSync<'a> {
                 break;
             }
 
-            let batch_len = rows.len() as u64;
+            let batch_len = u64::try_from(rows.len())?;
 
             // Deduplicate by start
             let mut deduped: HashMap<chrono::NaiveDateTime, activities::Model> = HashMap::new();
@@ -295,7 +295,7 @@ impl<'a> DatabaseSync<'a> {
         let unsynced = heart_rate::Entity::find()
             .filter(heart_rate::Column::Synced.eq(false));
 
-        let total = unsynced.clone().count(source).await? as u64;
+        let total = unsynced.clone().count(source).await?;
         let pb = mp.add(ProgressBar::new(total));
         pb.set_style(bar_style());
         pb.set_prefix(label.to_string());
@@ -319,7 +319,7 @@ impl<'a> DatabaseSync<'a> {
                 break;
             }
 
-            let batch_len = rows.len() as u64;
+            let batch_len = u64::try_from(rows.len())?;
 
             // Deduplicate by time
             let mut deduped: HashMap<chrono::NaiveDateTime, heart_rate::Model> = HashMap::new();
@@ -440,9 +440,8 @@ mod tests {
         for i in 0..5 {
             let reading = openwhoop_codec::HistoryReading {
                 unix: 1735689600000 + i * 1000,
-                bpm: 70 + i as u8,
+                bpm: 70 + u8::try_from(i).unwrap(),
                 rr: vec![850],
-                activity: 500_000_000,
                 imu_data: vec![],
                 sensor_data: None,
             };
@@ -511,7 +510,6 @@ mod tests {
             unix: 1735689600000,
             bpm: 72,
             rr: vec![833],
-            activity: 500_000_000,
             imu_data: vec![],
             sensor_data: None,
         })

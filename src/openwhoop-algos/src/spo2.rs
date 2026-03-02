@@ -93,7 +93,7 @@ mod tests {
             .zip(ir.iter())
             .enumerate()
             .map(|(i, (&r, &ir))| SpO2Reading {
-                time: base_time() + chrono::TimeDelta::seconds(i as i64),
+                time: base_time() + chrono::TimeDelta::seconds(i64::try_from(i).unwrap()),
                 spo2_red: r,
                 spo2_ir: ir,
             })

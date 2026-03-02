@@ -159,13 +159,10 @@ impl WhoopData {
             return Err(WhoopError::InvalidRRCount);
         }
 
-        let activity = packet.read_u32_le()?;
-
         Ok(Self::HistoryReading(HistoryReading {
             unix,
             bpm,
             rr,
-            activity,
             imu_data: Vec::new(),
             sensor_data: None,
         }))
@@ -262,7 +259,6 @@ impl WhoopData {
             unix,
             bpm,
             rr,
-            activity: 0, // V12/V24 don't have an activity field at the same offset
             imu_data: Vec::new(),
             sensor_data: Some(sensor_data),
         }))
@@ -296,13 +292,18 @@ impl WhoopData {
             }
             rr.push(rr_);
         }
-        if rr.len() as u8 != rr_count {
+
+        let Ok(rr_amount) = u8::try_from(rr.len()) else {
+            return Err(WhoopError::InvalidRRCount);
+        };
+
+        if rr_amount != rr_count {
             return Err(WhoopError::InvalidRRCount);
         }
 
         header_offset += rr.len() * 2;
 
-        let activity = packet.read_u32_le()?;
+        let _ = packet.read::<4>()?; // consume 4 legacy activity bytes to keep buffer offset correct
 
         // Helper function to read N_SAMPLES_IMU of i16 from a given offset
         // This closure captures N_SAMPLES_IMU from the outer scope.
@@ -349,7 +350,6 @@ impl WhoopData {
             unix,
             bpm,
             rr,
-            activity,
             imu_data,
             sensor_data: None,
         }))
@@ -396,7 +396,6 @@ mod tests {
                 unix: 1748326124000,
                 bpm: 62,
                 rr: vec![837],
-                activity: 0,
                 imu_data: [
                     ImuSample {
                         acc_x_g: -2.184,
@@ -1271,7 +1270,6 @@ mod tests {
                 unix: 1748326489000,
                 bpm: 60,
                 rr: Vec::new(),
-                activity: 0,
                 imu_data: [
                     ImuSample {
                         acc_x_g: -1.8272,

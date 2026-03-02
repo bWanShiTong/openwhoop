@@ -462,10 +462,10 @@ impl OpenWhoopCli {
 
                 last_week.reverse();
                 let analyzer = SleepConsistencyAnalyzer::new(sleep_records);
-                let metrics = analyzer.calculate_consistency_metrics();
+                let metrics = analyzer.calculate_consistency_metrics()?;
                 println!("All time: \n{}", metrics);
                 let analyzer = SleepConsistencyAnalyzer::new(last_week);
-                let metrics = analyzer.calculate_consistency_metrics();
+                let metrics = analyzer.calculate_consistency_metrics()?;
                 println!("\nWeek: \n{}", metrics);
             }
             OpenWhoopCommand::ExerciseStats => {
@@ -490,8 +490,8 @@ impl OpenWhoopCli {
                     .rev()
                     .collect::<Vec<_>>();
 
-                let metrics = ExerciseMetrics::new(exercises);
-                let last_week = ExerciseMetrics::new(last_week);
+                let metrics = ExerciseMetrics::new(exercises)?;
+                let last_week = ExerciseMetrics::new(last_week)?;
 
                 println!("All time: \n{}", metrics);
                 println!("Last week: \n{}", last_week);
@@ -526,7 +526,7 @@ impl OpenWhoopCli {
                     return Ok(());
                 }
 
-                let packet = WhoopPacket::alarm_time(time.timestamp() as u32);
+                let packet = WhoopPacket::alarm_time(u32::try_from(time.timestamp())?);
                 whoop.send_command(packet).await?;
                 let time = time.with_timezone(&Local);
 

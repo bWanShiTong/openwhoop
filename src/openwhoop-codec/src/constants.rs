@@ -197,7 +197,13 @@ impl PacketType {
 
     // Convert PacketType to u8
     pub fn as_u8(self) -> u8 {
-        self as u8
+        u8::from(self)
+    }
+}
+
+impl From<PacketType> for u8 {
+    fn from(v: PacketType) -> u8 {
+        v as u8
     }
 }
 
@@ -285,7 +291,13 @@ impl CommandNumber {
 
     // Convert CommandNumber to u8
     pub fn as_u8(self) -> u8 {
-        self as u8
+        u8::from(self)
+    }
+}
+
+impl From<CommandNumber> for u8 {
+    fn from(v: CommandNumber) -> u8 {
+        v as u8
     }
 }
 
@@ -302,7 +314,13 @@ impl MetadataType {
 
     // Convert PacketType to u8
     pub fn as_u8(self) -> u8 {
-        self as u8
+        u8::from(self)
+    }
+}
+
+impl From<MetadataType> for u8 {
+    fn from(v: MetadataType) -> u8 {
+        v as u8
     }
 }
 

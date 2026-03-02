@@ -1,6 +1,8 @@
 use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
 use openwhoop_codec::ParsedHistoryReading;
 
+use openwhoop_codec::WhoopError;
+
 use super::ActivityPeriod;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,33 +20,33 @@ pub struct SleepCycle {
 }
 
 impl SleepCycle {
-    pub fn from_event(event: ActivityPeriod, history: &[ParsedHistoryReading]) -> SleepCycle {
+    pub fn from_event(event: ActivityPeriod, history: &[ParsedHistoryReading]) -> Result<SleepCycle, WhoopError> {
         let (heart_rate, rr): (Vec<u64>, Vec<Vec<_>>) = history
             .iter()
             .filter(|h| h.time >= event.start && h.time <= event.end)
-            .map(|h| (h.bpm as u64, h.rr.clone()))
+            .map(|h| (u64::from(h.bpm), h.rr.clone()))
             .unzip();
 
         let rr = Self::clean_rr(rr);
         let rolling_hrv = Self::rolling_hrv(rr);
 
-        let min_hrv = rolling_hrv.iter().min().copied().unwrap_or_default() as u16;
-        let max_hrv = rolling_hrv.iter().max().copied().unwrap_or_default() as u16;
+        let min_hrv = u16::try_from(rolling_hrv.iter().min().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
+        let max_hrv = u16::try_from(rolling_hrv.iter().max().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
 
-        let hrv_count = rolling_hrv.len() as u64;
-        let hrv = rolling_hrv.into_iter().sum::<u64>() / hrv_count;
-        let avg_hrv = hrv as u16;
+        let hrv_count = u64::try_from(rolling_hrv.len()).map_err(|_| WhoopError::Overflow)?;
+        let hrv = rolling_hrv.into_iter().sum::<u64>() / hrv_count.max(1);
+        let avg_hrv = u16::try_from(hrv).map_err(|_| WhoopError::Overflow)?;
 
-        let min_bpm = heart_rate.iter().min().copied().unwrap_or_default() as u8;
-        let max_bpm = heart_rate.iter().max().copied().unwrap_or_default() as u8;
+        let min_bpm = u8::try_from(heart_rate.iter().min().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
+        let max_bpm = u8::try_from(heart_rate.iter().max().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
 
-        let heart_rate_count = heart_rate.len() as u64;
-        let bpm = heart_rate.into_iter().sum::<u64>() / heart_rate_count;
-        let avg_bpm = bpm as u8;
+        let heart_rate_count = u64::try_from(heart_rate.len()).map_err(|_| WhoopError::Overflow)?;
+        let bpm = heart_rate.into_iter().sum::<u64>() / heart_rate_count.max(1);
+        let avg_bpm = u8::try_from(bpm).map_err(|_| WhoopError::Overflow)?;
 
         let id = event.end.date();
 
-        Self {
+        Ok(Self {
             id,
             start: event.start,
             end: event.end,
@@ -55,7 +57,7 @@ impl SleepCycle {
             max_hrv,
             avg_hrv,
             score: Self::sleep_score(event.start, event.end),
-        }
+        })
     }
 
     pub fn duration(&self) -> TimeDelta {
@@ -207,11 +209,11 @@ mod tests {
                 time: base + TimeDelta::seconds(i * 60),
                 bpm: 60,
                 rr: vec![1000],
-                activity: openwhoop_codec::Activity::Sleep,
                 imu_data: None,
+                gravity: None,
             })
             .collect();
-        let cycle = SleepCycle::from_event(event, &history);
+        let cycle = SleepCycle::from_event(event, &history).unwrap();
         assert_eq!(cycle.min_bpm, 60);
         assert_eq!(cycle.max_bpm, 60);
         assert_eq!(cycle.avg_bpm, 60);

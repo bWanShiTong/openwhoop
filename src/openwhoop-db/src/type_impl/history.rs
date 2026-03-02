@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use openwhoop_entities::heart_rate;
 use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
-use openwhoop_codec::{Activity, ParsedHistoryReading};
+use openwhoop_codec::{ParsedHistoryReading, SensorData};
 
 use crate::DatabaseHandler;
 
@@ -28,7 +28,6 @@ impl DatabaseHandler {
         let limit = options.limit;
         let history = heart_rate::Entity::find()
             .filter(options.conditions())
-            .filter(heart_rate::Column::Activity.is_not_null())
             .limit(limit)
             .order_by_asc(heart_rate::Column::Time)
             .all(&self.db)
@@ -41,6 +40,11 @@ impl DatabaseHandler {
     }
 
     fn parse_reading(model: heart_rate::Model) -> ParsedHistoryReading {
+        let gravity = model.sensor_data.as_ref().and_then(|data| {
+            let sensor: SensorData = serde_json::from_value(data.clone()).ok()?;
+            Some(sensor.accel_gravity)
+        });
+
         ParsedHistoryReading {
             time: model.time,
             bpm: model.bpm.try_into().unwrap_or(u8::MAX),
@@ -49,7 +53,6 @@ impl DatabaseHandler {
                 .split(',')
                 .filter_map(|rr| rr.parse().ok())
                 .collect(),
-            activity: model.activity.map(Activity::from).unwrap(),
             imu_data: {
                 if let Some(data) = model.imu_data {
                     serde_json::from_value(data).unwrap()
@@ -57,6 +60,7 @@ impl DatabaseHandler {
                     Default::default()
                 }
             },
+            gravity,
         }
     }
 }
@@ -89,7 +93,6 @@ mod tests {
         let reading = DatabaseHandler::parse_reading(model);
         assert_eq!(reading.bpm, 72);
         assert_eq!(reading.rr, vec![833, 850]);
-        assert_eq!(reading.activity, Activity::Active);
         assert!(reading.imu_data.is_none());
     }
 
@@ -117,7 +120,6 @@ mod tests {
         let reading = DatabaseHandler::parse_reading(model);
         assert_eq!(reading.bpm, 60);
         assert!(reading.rr.is_empty());
-        assert_eq!(reading.activity, Activity::Inactive);
     }
 
     #[test]
@@ -164,9 +166,8 @@ mod tests {
         let readings: Vec<openwhoop_codec::HistoryReading> = (0..3)
             .map(|i| openwhoop_codec::HistoryReading {
                 unix: 1735689600000 + i * 1000,
-                bpm: 70 + i as u8,
+                bpm: 70 + u8::try_from(i).expect("i fits u8"),
                 rr: vec![850],
-                activity: 500_000_000,
                 imu_data: vec![],
                 sensor_data: None,
             })

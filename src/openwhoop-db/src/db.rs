@@ -51,7 +51,7 @@ impl DatabaseHandler {
     }
 
     pub async fn create_reading(&self, reading: HistoryReading) -> anyhow::Result<()> {
-        let time = timestamp_to_local(reading.unix);
+        let time = timestamp_to_local(reading.unix)?;
 
         let sensor_json = reading
             .sensor_data
@@ -61,10 +61,10 @@ impl DatabaseHandler {
 
         let packet = openwhoop_entities::heart_rate::ActiveModel {
             id: NotSet,
-            bpm: Set(reading.bpm as i16),
+            bpm: Set(i16::from(reading.bpm)),
             time: Set(time),
             rr_intervals: Set(rr_to_string(reading.rr)),
-            activity: Set(Some(i64::from(reading.activity))),
+            activity: NotSet,
             stress: NotSet,
             spo2: NotSet,
             skin_temp: NotSet,
@@ -78,7 +78,6 @@ impl DatabaseHandler {
                 OnConflict::column(openwhoop_entities::heart_rate::Column::Time)
                     .update_column(openwhoop_entities::heart_rate::Column::Bpm)
                     .update_column(openwhoop_entities::heart_rate::Column::RrIntervals)
-                    .update_column(openwhoop_entities::heart_rate::Column::Activity)
                     .update_column(openwhoop_entities::heart_rate::Column::SensorData)
                     .to_owned(),
             )
@@ -95,7 +94,7 @@ impl DatabaseHandler {
         let payloads = readings
             .into_iter()
             .map(|r| {
-                let time = timestamp_to_local(r.unix);
+                let time = timestamp_to_local(r.unix)?;
                 let sensor_json = r
                     .sensor_data
                     .as_ref()
@@ -103,10 +102,10 @@ impl DatabaseHandler {
                     .transpose()?;
                 Ok(openwhoop_entities::heart_rate::ActiveModel {
                     id: NotSet,
-                    bpm: Set(r.bpm as i16),
+                    bpm: Set(i16::from(r.bpm)),
                     time: Set(time),
                     rr_intervals: Set(rr_to_string(r.rr)),
-                    activity: Set(Some(i64::from(r.activity))),
+                    activity: NotSet,
                     stress: NotSet,
                     spo2: NotSet,
                     skin_temp: NotSet,
@@ -117,17 +116,20 @@ impl DatabaseHandler {
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
-        openwhoop_entities::heart_rate::Entity::insert_many(payloads)
-            .on_conflict(
-                OnConflict::column(openwhoop_entities::heart_rate::Column::Time)
-                    .update_column(openwhoop_entities::heart_rate::Column::Bpm)
-                    .update_column(openwhoop_entities::heart_rate::Column::RrIntervals)
-                    .update_column(openwhoop_entities::heart_rate::Column::Activity)
-                    .update_column(openwhoop_entities::heart_rate::Column::SensorData)
-                    .to_owned(),
-            )
-            .exec(&self.db)
-            .await?;
+        // SQLite limits to 999 SQL variables per statement.
+        // heart_rate has 11 columns, so max 90 rows per batch.
+        for chunk in payloads.chunks(90) {
+            openwhoop_entities::heart_rate::Entity::insert_many(chunk.to_vec())
+                .on_conflict(
+                    OnConflict::column(openwhoop_entities::heart_rate::Column::Time)
+                        .update_column(openwhoop_entities::heart_rate::Column::Bpm)
+                        .update_column(openwhoop_entities::heart_rate::Column::RrIntervals)
+                        .update_column(openwhoop_entities::heart_rate::Column::SensorData)
+                        .to_owned(),
+                )
+                .exec(&self.db)
+                .await?;
+        }
 
         Ok(())
     }
@@ -192,13 +194,14 @@ impl DatabaseHandler {
     }
 }
 
-fn timestamp_to_local(unix: u64) -> NaiveDateTime {
+fn timestamp_to_local(unix: u64) -> anyhow::Result<NaiveDateTime> {
+    let millis = i64::try_from(unix)?;
     let dt = Local
-        .timestamp_millis_opt(unix as i64)
+        .timestamp_millis_opt(millis)
         .single()
-        .expect("I don't know");
+        .ok_or_else(|| anyhow::anyhow!("ambiguous or invalid unix timestamp: {}", millis))?;
 
-    dt.naive_local()
+    Ok(dt.naive_local())
 }
 
 fn rr_to_string(rr: Vec<u16>) -> String {
@@ -232,7 +235,6 @@ mod tests {
             unix: 1735689600000, // 2025-01-01 00:00:00 UTC in millis
             bpm: 72,
             rr: vec![833, 850],
-            activity: 500_000_000, // Active
             imu_data: vec![],
             sensor_data: None,
         };
@@ -255,9 +257,8 @@ mod tests {
         let readings: Vec<HistoryReading> = (0..5)
             .map(|i| HistoryReading {
                 unix: 1735689600000 + i * 1000,
-                bpm: 70 + i as u8,
+                bpm: 70 + u8::try_from(i).unwrap(),
                 rr: vec![850],
-                activity: 500_000_000,
                 imu_data: vec![],
                 sensor_data: None,
             })
@@ -315,7 +316,6 @@ mod tests {
             unix: 1735689600000,
             bpm: 72,
             rr: vec![833],
-            activity: 500_000_000,
             imu_data: vec![],
             sensor_data: None,
         };
@@ -326,7 +326,6 @@ mod tests {
             unix: 1735689600000,
             bpm: 80,
             rr: vec![750],
-            activity: 500_000_000,
             imu_data: vec![],
             sensor_data: None,
         };

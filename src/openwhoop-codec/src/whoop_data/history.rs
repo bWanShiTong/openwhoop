@@ -5,7 +5,6 @@ pub struct HistoryReading {
     pub unix: u64,
     pub bpm: u8,
     pub rr: Vec<u16>,
-    pub activity: u32,
     pub imu_data: Vec<ImuSample>,
     pub sensor_data: Option<SensorData>,
 }
@@ -56,8 +55,9 @@ pub struct ParsedHistoryReading {
     pub time: NaiveDateTime,
     pub bpm: u8,
     pub rr: Vec<u16>,
-    pub activity: Activity,
     pub imu_data: Option<Vec<ImuSample>>,
+    /// Gravity vector [x, y, z] from V12/V24 packets. `None` for older packet formats.
+    pub gravity: Option<[f32; 3]>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
@@ -76,63 +76,9 @@ impl HistoryReading {
     }
 }
 
-impl From<i64> for Activity {
-    fn from(value: i64) -> Self {
-        match value {
-            0..500_000_000 => Self::Inactive,
-            500_000_000..1_000_000_000 => Self::Active,
-            1_000_000_000..1_500_000_000 => Self::Sleep,
-            1_500_000_000..=i64::MAX => Self::Awake,
-            _ => {
-                println!("{}, {}", value, u64::from_le_bytes(value.to_le_bytes()));
-                Self::Unknown
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn activity_from_inactive_range() {
-        assert_eq!(Activity::from(0_i64), Activity::Inactive);
-        assert_eq!(Activity::from(250_000_000_i64), Activity::Inactive);
-        assert_eq!(Activity::from(499_999_999_i64), Activity::Inactive);
-    }
-
-    #[test]
-    fn activity_from_active_range() {
-        assert_eq!(Activity::from(500_000_000_i64), Activity::Active);
-        assert_eq!(Activity::from(750_000_000_i64), Activity::Active);
-        assert_eq!(Activity::from(999_999_999_i64), Activity::Active);
-    }
-
-    #[test]
-    fn activity_from_sleep_range() {
-        assert_eq!(Activity::from(1_000_000_000_i64), Activity::Sleep);
-        assert_eq!(Activity::from(1_250_000_000_i64), Activity::Sleep);
-        assert_eq!(Activity::from(1_499_999_999_i64), Activity::Sleep);
-    }
-
-    #[test]
-    fn activity_from_awake_range() {
-        assert_eq!(Activity::from(1_500_000_000_i64), Activity::Awake);
-        assert_eq!(Activity::from(2_000_000_000_i64), Activity::Awake);
-        assert_eq!(Activity::from(i64::MAX), Activity::Awake);
-    }
-
-    #[test]
-    fn activity_from_negative_is_unknown() {
-        assert_eq!(Activity::from(-1_i64), Activity::Unknown);
-        assert_eq!(Activity::from(i64::MIN), Activity::Unknown);
-    }
-
-    #[test]
-    fn activity_default_is_unknown() {
-        assert_eq!(Activity::default(), Activity::Unknown);
-    }
 
     #[test]
     fn history_reading_valid_when_bpm_positive() {
@@ -140,7 +86,6 @@ mod tests {
             unix: 1000,
             bpm: 70,
             rr: vec![800],
-            activity: 500_000_000,
             imu_data: vec![],
             sensor_data: None,
         };
@@ -153,7 +98,6 @@ mod tests {
             unix: 1000,
             bpm: 0,
             rr: vec![],
-            activity: 0,
             imu_data: vec![],
             sensor_data: None,
         };

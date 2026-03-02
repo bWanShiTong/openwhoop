@@ -117,9 +117,9 @@ impl WhoopPacket {
         !crc
     }
 
-    pub fn framed_packet(&self) -> Vec<u8> {
+    pub fn framed_packet(&self) -> Result<Vec<u8>, WhoopError> {
         let pkt = self.create_packet();
-        let length = pkt.len() as u16 + 4;
+        let length = u16::try_from(pkt.len()).map_err(|_| WhoopError::Overflow)? + 4;
         let length_buffer = length.to_le_bytes();
         let crc8_value = Self::crc8(&length_buffer);
 
@@ -132,7 +132,7 @@ impl WhoopPacket {
         framed_packet.extend_from_slice(&pkt);
         framed_packet.extend_from_slice(&crc32_buffer);
 
-        framed_packet
+        Ok(framed_packet)
     }
 }
 
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_packet_creation() {
         let packet = WhoopPacket::new(PacketType::Command, 1, 5, vec![0x01, 0x02, 0x03]);
-        let framed = packet.framed_packet();
+        let framed = packet.framed_packet().unwrap();
         assert!(framed.len() > 8);
         assert_eq!(framed[0], WhoopPacket::SOF);
     }
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn test_packet_parsing() {
         let original_packet = WhoopPacket::new(PacketType::Command, 1, 5, vec![0x01, 0x02, 0x03]);
-        let framed = original_packet.framed_packet();
+        let framed = original_packet.framed_packet().unwrap();
         let parsed = WhoopPacket::from_data(framed).unwrap();
 
         assert_eq!(parsed.packet_type, original_packet.packet_type);
@@ -222,7 +222,7 @@ mod tests {
             PacketType::ConsoleLogs,
         ] {
             let original = WhoopPacket::new(pt, 7, 3, vec![0x01, 0x02]);
-            let framed = original.framed_packet();
+            let framed = original.framed_packet().unwrap();
             let parsed = WhoopPacket::from_data(framed).unwrap();
             assert_eq!(parsed.packet_type, pt);
             assert_eq!(parsed.seq, 7);
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn empty_payload_creates_valid_frame() {
         let packet = WhoopPacket::new(PacketType::Command, 0, 0, vec![]);
-        let framed = packet.framed_packet();
+        let framed = packet.framed_packet().unwrap();
         // SOF + 2 length + 1 CRC8 + 3 (type/seq/cmd) + 4 CRC32 = 11 bytes
         assert_eq!(framed[0], WhoopPacket::SOF);
         assert_eq!(framed.len(), 11);

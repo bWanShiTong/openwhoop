@@ -80,7 +80,7 @@ impl WhoopDevice {
         self.subscribe(MEMFAULT).await?;
 
         self.send_command(WhoopPacket::hello_harvard()).await?;
-        self.send_command(WhoopPacket::set_time()).await?;
+        self.send_command(WhoopPacket::set_time()?).await?;
         self.send_command(WhoopPacket::get_name()).await?;
 
         self.send_command(WhoopPacket::enter_high_freq_sync())
@@ -89,7 +89,7 @@ impl WhoopDevice {
     }
 
     pub async fn send_command(&mut self, packet: WhoopPacket) -> anyhow::Result<()> {
-        let packet = packet.framed_packet();
+        let packet = packet.framed_packet()?;
         self.peripheral
             .write(
                 &Self::create_char(CMD_TO_STRAP),

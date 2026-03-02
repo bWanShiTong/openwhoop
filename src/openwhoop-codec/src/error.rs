@@ -16,4 +16,6 @@ pub enum WhoopError {
     InvalidConsoleLog,
     Unimplemented,
     InvalidRRCount,
+    Overflow,
+    InvalidTime,
 }

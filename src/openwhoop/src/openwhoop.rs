@@ -105,7 +105,7 @@ impl OpenWhoop {
                     self.last_history_packet = Some(hr.clone());
                 }
 
-                let ptime = DateTime::from_timestamp_millis(hr.unix as i64)
+                let ptime = DateTime::from_timestamp_millis(i64::try_from(hr.unix)?)
                     .unwrap()
                     .with_timezone(&Local)
                     .format("%Y-%m-%d %H:%M:%S");
@@ -167,8 +167,8 @@ impl OpenWhoop {
                 ..Default::default()
             };
 
-            let mut history = self.database.search_history(options).await?;
-            let events = ActivityPeriod::detect(history.as_mut_slice());
+            let history = self.database.search_history(options).await?;
+            let events = ActivityPeriod::detect_from_gravity(&history);
 
             for event in events {
                 let activity = match event.activity {
@@ -210,7 +210,7 @@ impl OpenWhoop {
             };
 
             let mut history = self.database.search_history(options).await?;
-            let mut periods = ActivityPeriod::detect(history.as_mut_slice());
+            let mut periods = ActivityPeriod::detect_from_gravity(&history);
 
             while let Some(mut sleep) = ActivityPeriod::find_sleep(&mut periods) {
                 if let Some(last_sleep) = last_sleep {
@@ -255,7 +255,7 @@ impl OpenWhoop {
                     }
                 }
 
-                let sleep_cycle = SleepCycle::from_event(sleep, &history);
+                let sleep_cycle = SleepCycle::from_event(sleep, &history)?;
 
                 info!(
                     "Detected sleep from {} to {}, duration: {}",
@@ -278,7 +278,7 @@ impl OpenWhoop {
             let last = self.database.last_spo2_time().await?;
             let options = SearchHistory {
                 from: last
-                    .map(|t| t - TimeDelta::seconds(SpO2Calculator::WINDOW_SIZE as i64)),
+                    .map(|t| t - TimeDelta::seconds(i64::try_from(SpO2Calculator::WINDOW_SIZE).unwrap_or(0))),
                 to: None,
                 limit: Some(86400),
             };
@@ -331,7 +331,7 @@ impl OpenWhoop {
             let last_stress = self.database.last_stress_time().await?;
             let options = SearchHistory {
                 from: last_stress
-                    .map(|t| t - TimeDelta::seconds(StressCalculator::MIN_READING_PERIOD as i64)),
+                    .map(|t| t - TimeDelta::seconds(i64::try_from(StressCalculator::MIN_READING_PERIOD).unwrap_or(0))),
                 to: None,
                 limit: Some(86400),
             };

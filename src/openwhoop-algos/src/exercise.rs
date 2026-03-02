@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use chrono::TimeDelta;
 
+use openwhoop_codec::WhoopError;
 use crate::helpers::{
     format_hm::FormatHM,
     time_math::{mean_deltas, std_dev_delta},
@@ -17,25 +18,25 @@ pub struct ExerciseMetrics {
 }
 
 impl ExerciseMetrics {
-    pub fn new(exercises: Vec<ActivityPeriod>) -> Self {
+    pub fn new(exercises: Vec<ActivityPeriod>) -> Result<Self, WhoopError> {
         if exercises.is_empty() {
-            return Self::default();
+            return Ok(Self::default());
         }
 
-        let count = exercises.len().try_into().unwrap_or(u64::MAX);
+        let count = u64::try_from(exercises.len()).map_err(|_| WhoopError::Overflow)?;
         let durations = exercises
             .into_iter()
             .map(|e| e.to - e.from)
             .collect::<Vec<_>>();
 
-        let mean_duration = mean_deltas(durations.as_slice());
+        let mean_duration = mean_deltas(durations.as_slice())?;
 
-        Self {
+        Ok(Self {
             count,
             mean_duration,
-            duration_std: std_dev_delta(durations.as_slice(), mean_duration),
+            duration_std: std_dev_delta(durations.as_slice(), mean_duration)?,
             total_duration: durations.into_iter().sum(),
-        }
+        })
     }
 }
 
@@ -59,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_metrics_empty() {
-        let metrics = ExerciseMetrics::new(Vec::new());
+        let metrics = ExerciseMetrics::new(Vec::new()).unwrap();
         assert_eq!(metrics.count, 0);
         assert_eq!(metrics.duration_std, TimeDelta::default());
         assert_eq!(metrics.mean_duration, TimeDelta::default());
@@ -91,7 +92,7 @@ mod tests {
             },
         ];
 
-        let metrics = ExerciseMetrics::new(exercises);
+        let metrics = ExerciseMetrics::new(exercises).unwrap();
         assert_eq!(metrics.count, 2);
         assert_eq!(metrics.total_duration, TimeDelta::hours(2));
         assert_eq!(metrics.mean_duration, TimeDelta::hours(1));

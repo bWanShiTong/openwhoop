@@ -121,11 +121,11 @@ mod tests {
 
         (0..size)
             .map(|i| ParsedHistoryReading {
-                time: base + chrono::Duration::seconds(i as i64),
+                time: base + chrono::Duration::seconds(i64::try_from(i).unwrap()),
                 bpm: rng.random_range(lo..=hi),
                 rr: vec![],
-                activity: openwhoop_codec::Activity::Active,
                 imu_data: None,
+                gravity: None,
             })
             .collect()
     }
@@ -138,11 +138,11 @@ mod tests {
 
         (0..size)
             .map(|i| ParsedHistoryReading {
-                time: base + chrono::Duration::seconds(i as i64),
+                time: base + chrono::Duration::seconds(i64::try_from(i).unwrap()),
                 bpm,
                 rr: vec![],
-                activity: openwhoop_codec::Activity::Active,
                 imu_data: None,
+                gravity: None,
             })
             .collect()
     }

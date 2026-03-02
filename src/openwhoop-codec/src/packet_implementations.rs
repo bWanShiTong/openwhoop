@@ -3,6 +3,7 @@ use chrono::Utc;
 use crate::{
     WhoopPacket,
     constants::{CommandNumber, PacketType},
+    error::WhoopError,
 };
 
 impl WhoopPacket {
@@ -51,17 +52,17 @@ impl WhoopPacket {
         )
     }
 
-    pub fn set_time() -> WhoopPacket {
+    pub fn set_time() -> Result<WhoopPacket, WhoopError> {
         let mut data = vec![];
-        let current_time = Utc::now().timestamp() as u32;
+        let current_time = u32::try_from(Utc::now().timestamp()).map_err(|_| WhoopError::Overflow)?;
         data.extend_from_slice(&current_time.to_le_bytes());
         data.append(&mut vec![0, 0, 0, 0, 0]); // padding
-        WhoopPacket::new(
+        Ok(WhoopPacket::new(
             PacketType::Command,
             0,
             CommandNumber::SetClock.as_u8(),
             data,
-        )
+        ))
     }
 
     pub fn history_end(data: u32) -> WhoopPacket {
@@ -94,7 +95,7 @@ impl WhoopPacket {
             PacketType::Command,
             0,
             CommandNumber::ToggleImuMode.as_u8(),
-            vec![value as u8],
+            vec![u8::from(value)],
         )
     }
 
@@ -103,7 +104,7 @@ impl WhoopPacket {
             PacketType::Command,
             0,
             CommandNumber::ToggleImuModeHistorical.as_u8(),
-            vec![value as u8],
+            vec![u8::from(value)],
         )
     }
 
@@ -148,7 +149,7 @@ impl WhoopPacket {
             PacketType::Command,
             0,
             CommandNumber::EnableOpticalData.as_u8(),
-            vec![0x01, enable as u8],
+            vec![0x01, u8::from(enable)],
         )
     }
 
@@ -157,7 +158,7 @@ impl WhoopPacket {
             PacketType::Command,
             0,
             CommandNumber::ToggleOpticalMode.as_u8(),
-            vec![0x01, enable as u8],
+            vec![0x01, u8::from(enable)],
         )
     }
 }
@@ -172,7 +173,7 @@ mod tests {
     }
 
     fn assert_roundtrip(packet: &WhoopPacket) {
-        let framed = packet.framed_packet();
+        let framed = packet.framed_packet().unwrap();
         let parsed = WhoopPacket::from_data(framed).unwrap();
         assert_eq!(parsed.packet_type, packet.packet_type);
         assert_eq!(parsed.cmd, packet.cmd);
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn set_time_packet() {
-        let p = WhoopPacket::set_time();
+        let p = WhoopPacket::set_time().unwrap();
         assert_command_packet(&p, CommandNumber::SetClock);
         assert_eq!(p.data.len(), 9); // 4 bytes time + 5 bytes padding
         assert_roundtrip(&p);

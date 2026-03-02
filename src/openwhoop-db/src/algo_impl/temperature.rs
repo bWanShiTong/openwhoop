@@ -126,7 +126,6 @@ mod tests {
             unix: 1735689600000,
             bpm: 72,
             rr: vec![833],
-            activity: 500_000_000,
             imu_data: vec![],
             sensor_data: Some(sensor),
         };

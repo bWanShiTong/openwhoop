@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 use chrono::{NaiveTime, TimeDelta, Timelike};
 
+use openwhoop_codec::WhoopError;
 use crate::helpers::{
     format_hm::FormatHM,
     time_math::{mean, mean_deltas, mean_time, round_float, std_dev_delta, std_time},
@@ -59,22 +60,22 @@ impl SleepConsistencyAnalyzer {
         }
     }
 
-    pub fn calculate_consistency_metrics(&self) -> SleepMetrics {
+    pub fn calculate_consistency_metrics(&self) -> Result<SleepMetrics, WhoopError> {
         if self.durations.is_empty() {
-            return SleepMetrics::default();
+            return Ok(SleepMetrics::default());
         }
 
         // Calculate statistics for duration
-        let duration = self.duration_metric();
+        let duration = self.duration_metric()?;
 
         // Calculate statistics for start time
-        let start_time = self.duration_metrics(&self.start_times);
+        let start_time = self.duration_metrics(&self.start_times)?;
 
         // Calculate statistics for end time
-        let end_time = self.duration_metrics(&self.end_times);
+        let end_time = self.duration_metrics(&self.end_times)?;
 
         // Calculate statistics for midpoint
-        let midpoint = self.duration_metrics(&self.midpoints);
+        let midpoint = self.duration_metrics(&self.midpoints)?;
 
         // Duration consistency
         let duration_score = round_float(f64::max(0.0, 100.0 - duration.cv));
@@ -98,34 +99,34 @@ impl SleepConsistencyAnalyzer {
             timing_score,
         };
 
-        SleepMetrics {
+        Ok(SleepMetrics {
             duration,
             start_time,
             end_time,
             midpoint,
             score,
-        }
+        })
     }
 
-    fn duration_metric(&self) -> DurationMetric<TimeDelta> {
+    fn duration_metric(&self) -> Result<DurationMetric<TimeDelta>, WhoopError> {
         let durations = &self.durations;
-        let mean = mean_deltas(durations);
-        let std = std_dev_delta(durations, mean);
+        let mean = mean_deltas(durations)?;
+        let std = std_dev_delta(durations, mean)?;
         let cv = round_float(std.num_seconds() as f64 / mean.num_seconds() as f64 * 100.0);
 
-        DurationMetric { std, mean, cv }
+        Ok(DurationMetric { std, mean, cv })
     }
 
-    fn duration_metrics(&self, times: &[NaiveTime]) -> DurationMetric<NaiveTime> {
-        let mean = mean_time(times);
-        let std = std_time(times, &mean);
+    fn duration_metrics(&self, times: &[NaiveTime]) -> Result<DurationMetric<NaiveTime>, WhoopError> {
+        let mean = mean_time(times)?;
+        let std = std_time(times, &mean)?;
 
         let num_seconds = |time: NaiveTime| {
-            time.hour() as f64 * 3600.0 + time.minute() as f64 * 60.0 + time.second() as f64
+            f64::from(time.hour()) * 3600.0 + f64::from(time.minute()) * 60.0 + f64::from(time.second())
         };
 
         let cv = round_float(num_seconds(std) / num_seconds(mean) * 100.0);
-        DurationMetric { std, mean, cv }
+        Ok(DurationMetric { std, mean, cv })
     }
 }
 
@@ -179,7 +180,7 @@ mod tests {
     #[test]
     fn test_empty_sleep() {
         let anal = SleepConsistencyAnalyzer::new(Vec::new());
-        let metrics = anal.calculate_consistency_metrics();
+        let metrics = anal.calculate_consistency_metrics().unwrap();
 
         assert_eq!(metrics.duration, DurationMetric::default());
         assert_eq!(metrics.end_time, DurationMetric::default());
@@ -216,7 +217,7 @@ mod tests {
             .collect();
 
         let analyzer = SleepConsistencyAnalyzer::new(records);
-        let metrics = analyzer.calculate_consistency_metrics();
+        let metrics = analyzer.calculate_consistency_metrics().unwrap();
 
         // Zero variance -> CV = 0 -> all scores = 100
         assert_eq!(metrics.score.duration_score, 100.0);
@@ -251,7 +252,7 @@ mod tests {
         }];
 
         let analyzer = SleepConsistencyAnalyzer::new(records);
-        let metrics = analyzer.calculate_consistency_metrics();
+        let metrics = analyzer.calculate_consistency_metrics().unwrap();
 
         assert_eq!(metrics.score.duration_score, 100.0);
     }

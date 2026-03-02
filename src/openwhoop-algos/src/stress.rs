@@ -2,6 +2,8 @@ use chrono::NaiveDateTime;
 use std::collections::BTreeMap;
 use openwhoop_codec::ParsedHistoryReading;
 
+use openwhoop_codec::WhoopError;
+
 pub struct StressCalculator;
 
 #[derive(Debug, Clone, Copy)]
@@ -32,7 +34,7 @@ impl StressCalculator {
                 .collect()
         };
 
-        let score = StressCalcParams::new(rr).stress_score();
+        let score = StressCalcParams::new(rr).ok()?.stress_score();
         Some(StressScore { time, score })
     }
 }
@@ -50,8 +52,8 @@ impl StressCalcParams {
     /// Standard 50ms bin width for Baevsky's Stress Index histogram.
     const BIN_WIDTH: u16 = 50;
 
-    fn new(rr: Vec<u16>) -> Self {
-        let count = rr.len() as u16;
+    fn new(rr: Vec<u16>) -> Result<Self, WhoopError> {
+        let count = u16::try_from(rr.len()).map_err(|_| WhoopError::Overflow)?;
 
         let min = rr.iter().min().copied().unwrap_or_default();
         let max = rr.iter().max().copied().unwrap_or_default();
@@ -71,13 +73,13 @@ impl StressCalcParams {
         // Mode is the center of the most frequent bin
         let mode = mode_bin * Self::BIN_WIDTH + Self::BIN_WIDTH / 2;
 
-        Self {
+        Ok(Self {
             min,
             max,
             mode,
             mode_freq,
             count,
-        }
+        })
     }
 
     fn stress_score(self) -> f64 {
@@ -116,7 +118,7 @@ mod tests {
             612,
         ]
         .to_vec();
-        let score = StressCalcParams::new(rr).stress_score();
+        let score = StressCalcParams::new(rr).unwrap().stress_score();
         assert!(score > 0.0, "moderate variability should have some stress: {score}");
         assert!(score <= 10.0, "moderate variability stress should be <= 10: {score}");
     }
@@ -135,7 +137,7 @@ mod tests {
             952, 952, 952,
         ]
         .to_vec();
-        let score = StressCalcParams::new(rr).stress_score();
+        let score = StressCalcParams::new(rr).unwrap().stress_score();
         assert!(score > 0.0, "low variability RR should produce a stress score: {score}");
     }
 
@@ -143,14 +145,14 @@ mod tests {
     fn test_stress_constant_rr_returns_max() {
         // All identical RR -> zero variability -> maximum stress
         let rr = vec![750_u16; 120];
-        let score = StressCalcParams::new(rr).stress_score();
+        let score = StressCalcParams::new(rr).unwrap().stress_score();
         assert_eq!(score, 10.0);
     }
 
     #[test]
     fn test_stress_calculator_too_few_readings() {
         use chrono::NaiveDate;
-        use openwhoop_codec::{Activity, ParsedHistoryReading};
+        use openwhoop_codec::ParsedHistoryReading;
 
         let base = NaiveDate::from_ymd_opt(2025, 1, 1)
             .unwrap()
@@ -161,8 +163,8 @@ mod tests {
                 time: base + chrono::TimeDelta::seconds(i),
                 bpm: 80,
                 rr: vec![],
-                activity: Activity::Active,
                 imu_data: None,
+                gravity: None,
             })
             .collect();
         assert!(StressCalculator::calculate_stress(&readings).is_none());
@@ -171,7 +173,7 @@ mod tests {
     #[test]
     fn test_stress_calculator_sufficient_readings() {
         use chrono::NaiveDate;
-        use openwhoop_codec::{Activity, ParsedHistoryReading};
+        use openwhoop_codec::ParsedHistoryReading;
 
         let base = NaiveDate::from_ymd_opt(2025, 1, 1)
             .unwrap()
@@ -180,10 +182,10 @@ mod tests {
         let readings: Vec<ParsedHistoryReading> = (0..120)
             .map(|i| ParsedHistoryReading {
                 time: base + chrono::TimeDelta::seconds(i),
-                bpm: 70 + (i % 10) as u8,
+                bpm: 70 + u8::try_from(i % 10).unwrap(),
                 rr: vec![],
-                activity: Activity::Active,
                 imu_data: None,
+                gravity: None,
             })
             .collect();
         let result = StressCalculator::calculate_stress(&readings);
