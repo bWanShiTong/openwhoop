@@ -95,8 +95,7 @@ impl<'a> DatabaseSync<'a> {
         mp: &MultiProgress,
         label: &str,
     ) -> anyhow::Result<usize> {
-        let unsynced = sleep_cycles::Entity::find()
-            .filter(sleep_cycles::Column::Synced.eq(false));
+        let unsynced = sleep_cycles::Entity::find().filter(sleep_cycles::Column::Synced.eq(false));
 
         let total = unsynced.clone().count(source).await?;
         let pb = mp.add(ProgressBar::new(total));
@@ -201,8 +200,7 @@ impl<'a> DatabaseSync<'a> {
         mp: &MultiProgress,
         label: &str,
     ) -> anyhow::Result<usize> {
-        let unsynced = activities::Entity::find()
-            .filter(activities::Column::Synced.eq(false));
+        let unsynced = activities::Entity::find().filter(activities::Column::Synced.eq(false));
 
         let total = unsynced.clone().count(source).await?;
         let pb = mp.add(ProgressBar::new(total));
@@ -292,8 +290,7 @@ impl<'a> DatabaseSync<'a> {
         mp: &MultiProgress,
         label: &str,
     ) -> anyhow::Result<usize> {
-        let unsynced = heart_rate::Entity::find()
-            .filter(heart_rate::Column::Synced.eq(false));
+        let unsynced = heart_rate::Entity::find().filter(heart_rate::Column::Synced.eq(false));
 
         let total = unsynced.clone().count(source).await?;
         let pb = mp.add(ProgressBar::new(total));
@@ -351,10 +348,7 @@ impl<'a> DatabaseSync<'a> {
             heart_rate::Entity::insert_many(models)
                 .on_conflict(
                     OnConflict::column(heart_rate::Column::Time)
-                        .update_columns([
-                            heart_rate::Column::Bpm,
-                            heart_rate::Column::RrIntervals,
-                        ])
+                        .update_columns([heart_rate::Column::Bpm, heart_rate::Column::RrIntervals])
                         .value(
                             heart_rate::Column::Activity,
                             Expr::cust("COALESCE(excluded.activity, heart_rate.activity)"),

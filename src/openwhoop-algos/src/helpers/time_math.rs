@@ -120,7 +120,10 @@ mod tests {
     #[test]
     fn mean_time_single() -> Result<(), WhoopError> {
         let times = vec![NaiveTime::from_hms_opt(8, 0, 0).unwrap()];
-        assert_eq!(mean_time(&times)?, NaiveTime::from_hms_opt(8, 0, 0).unwrap());
+        assert_eq!(
+            mean_time(&times)?,
+            NaiveTime::from_hms_opt(8, 0, 0).unwrap()
+        );
         Ok(())
     }
 
@@ -155,7 +158,10 @@ mod tests {
     fn std_time_identical_values() -> Result<(), WhoopError> {
         let t = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
         let times = vec![t, t, t];
-        assert_eq!(std_time(&times, &t)?, NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        assert_eq!(
+            std_time(&times, &t)?,
+            NaiveTime::from_hms_opt(0, 0, 0).unwrap()
+        );
         Ok(())
     }
 

@@ -1,3 +1,5 @@
+use std::array::TryFromSliceError;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -6,6 +8,7 @@ pub enum WhoopError {
     PacketTooShort,
     InvalidSof,
     InvalidHeaderCrc8,
+    InvalidHeaderCrc16,
     InvalidPacketLength,
     InvalidDataCrc32,
     InvalidIndexError,
@@ -18,4 +21,11 @@ pub enum WhoopError {
     InvalidRRCount,
     Overflow,
     InvalidTime,
+    InvalidSliceError,
+}
+
+impl From<TryFromSliceError> for WhoopError {
+    fn from(_value: TryFromSliceError) -> Self {
+        Self::InvalidSliceError
+    }
 }

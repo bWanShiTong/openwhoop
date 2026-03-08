@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
-use std::collections::BTreeMap;
 use openwhoop_codec::ParsedHistoryReading;
+use std::collections::BTreeMap;
 
 use openwhoop_codec::WhoopError;
 
@@ -101,8 +101,8 @@ impl StressCalcParams {
 
 #[cfg(test)]
 mod tests {
-    use crate::stress::StressCalcParams;
     use crate::StressCalculator;
+    use crate::stress::StressCalcParams;
 
     #[test]
     fn test_stress_calc_moderate_variability() {
@@ -119,8 +119,14 @@ mod tests {
         ]
         .to_vec();
         let score = StressCalcParams::new(rr).unwrap().stress_score();
-        assert!(score > 0.0, "moderate variability should have some stress: {score}");
-        assert!(score <= 10.0, "moderate variability stress should be <= 10: {score}");
+        assert!(
+            score > 0.0,
+            "moderate variability should have some stress: {score}"
+        );
+        assert!(
+            score <= 10.0,
+            "moderate variability stress should be <= 10: {score}"
+        );
     }
 
     #[test]
@@ -138,7 +144,10 @@ mod tests {
         ]
         .to_vec();
         let score = StressCalcParams::new(rr).unwrap().stress_score();
-        assert!(score > 0.0, "low variability RR should produce a stress score: {score}");
+        assert!(
+            score > 0.0,
+            "low variability RR should produce a stress score: {score}"
+        );
     }
 
     #[test]

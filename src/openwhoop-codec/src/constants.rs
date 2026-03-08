@@ -2,12 +2,100 @@
 
 use uuid::{Uuid, uuid};
 
-pub const WHOOP_SERVICE: Uuid = uuid!("61080001-8d6d-82b8-614a-1c8cb0f8dcc6");
-pub const CMD_TO_STRAP: Uuid = uuid!("61080002-8d6d-82b8-614a-1c8cb0f8dcc6");
-pub const DATA_FROM_STRAP: Uuid = uuid!("61080005-8d6d-82b8-614a-1c8cb0f8dcc6");
-pub const CMD_FROM_STRAP: Uuid = uuid!("61080003-8d6d-82b8-614a-1c8cb0f8dcc6");
-pub const EVENTS_FROM_STRAP: Uuid = uuid!("61080004-8d6d-82b8-614a-1c8cb0f8dcc6");
-pub const MEMFAULT: Uuid = uuid!("61080007-8d6d-82b8-614a-1c8cb0f8dcc6");
+// WHOOP Gen 4 (Harvard)
+pub const WHOOP_SERVICE_GEN4: Uuid = uuid!("61080001-8d6d-82b8-614a-1c8cb0f8dcc6");
+pub const CMD_TO_STRAP_GEN4: Uuid = uuid!("61080002-8d6d-82b8-614a-1c8cb0f8dcc6");
+pub const DATA_FROM_STRAP_GEN4: Uuid = uuid!("61080005-8d6d-82b8-614a-1c8cb0f8dcc6");
+pub const CMD_FROM_STRAP_GEN4: Uuid = uuid!("61080003-8d6d-82b8-614a-1c8cb0f8dcc6");
+pub const EVENTS_FROM_STRAP_GEN4: Uuid = uuid!("61080004-8d6d-82b8-614a-1c8cb0f8dcc6");
+pub const MEMFAULT_GEN4: Uuid = uuid!("61080007-8d6d-82b8-614a-1c8cb0f8dcc6");
+
+// WHOOP 5.0 (Maverick)
+pub const WHOOP_SERVICE_GEN5: Uuid = uuid!("fd4b0001-cce1-4033-93ce-002d5875f58a");
+pub const CMD_TO_STRAP_GEN5: Uuid = uuid!("fd4b0002-cce1-4033-93ce-002d5875f58a");
+pub const DATA_FROM_STRAP_GEN5: Uuid = uuid!("fd4b0005-cce1-4033-93ce-002d5875f58a");
+pub const CMD_FROM_STRAP_GEN5: Uuid = uuid!("fd4b0003-cce1-4033-93ce-002d5875f58a");
+pub const EVENTS_FROM_STRAP_GEN5: Uuid = uuid!("fd4b0004-cce1-4033-93ce-002d5875f58a");
+pub const MEMFAULT_GEN5: Uuid = uuid!("fd4b0007-cce1-4033-93ce-002d5875f58a");
+
+pub const ALL_WHOOP_SERVICES: [Uuid; 2] = [WHOOP_SERVICE_GEN4, WHOOP_SERVICE_GEN5];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhoopGeneration {
+    Placeholder,
+    Gen4,
+    Gen5,
+}
+
+impl WhoopGeneration {
+    pub fn from_service(service: Uuid) -> Option<Self> {
+        match service {
+            WHOOP_SERVICE_GEN4 => Some(Self::Gen4),
+            WHOOP_SERVICE_GEN5 => Some(Self::Gen5),
+            _ => None,
+        }
+    }
+
+    pub fn service(self) -> Uuid {
+        match self {
+            Self::Placeholder => {
+                unimplemented!("WhoopGeneration::Placeholder has no BLE service UUID")
+            }
+            Self::Gen4 => WHOOP_SERVICE_GEN4,
+            Self::Gen5 => WHOOP_SERVICE_GEN5,
+        }
+    }
+
+    pub fn cmd_to_strap(self) -> Uuid {
+        match self {
+            Self::Placeholder => {
+                unimplemented!("WhoopGeneration::Placeholder has no cmd_to_strap UUID")
+            }
+            Self::Gen4 => CMD_TO_STRAP_GEN4,
+            Self::Gen5 => CMD_TO_STRAP_GEN5,
+        }
+    }
+
+    pub fn data_from_strap(self) -> Uuid {
+        match self {
+            Self::Placeholder => {
+                unimplemented!("WhoopGeneration::Placeholder has no data_from_strap UUID")
+            }
+            Self::Gen4 => DATA_FROM_STRAP_GEN4,
+            Self::Gen5 => DATA_FROM_STRAP_GEN5,
+        }
+    }
+
+    pub fn cmd_from_strap(self) -> Uuid {
+        match self {
+            Self::Placeholder => {
+                unimplemented!("WhoopGeneration::Placeholder has no cmd_from_strap UUID")
+            }
+            Self::Gen4 => CMD_FROM_STRAP_GEN4,
+            Self::Gen5 => CMD_FROM_STRAP_GEN5,
+        }
+    }
+
+    pub fn events_from_strap(self) -> Uuid {
+        match self {
+            Self::Placeholder => {
+                unimplemented!("WhoopGeneration::Placeholder has no events_from_strap UUID")
+            }
+            Self::Gen4 => EVENTS_FROM_STRAP_GEN4,
+            Self::Gen5 => EVENTS_FROM_STRAP_GEN5,
+        }
+    }
+
+    pub fn memfault(self) -> Uuid {
+        match self {
+            Self::Placeholder => {
+                unimplemented!("WhoopGeneration::Placeholder has no memfault UUID")
+            }
+            Self::Gen4 => MEMFAULT_GEN4,
+            Self::Gen5 => MEMFAULT_GEN5,
+        }
+    }
+}
 
 // PacketType enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +111,10 @@ pub enum PacketType {
     ConsoleLogs = 50,
     RealtimeImuDataStream = 51,
     HistoricalImuDataStream = 52,
+    RelativePuffinEvents = 53,
+    PuffinEventsFromStrap = 54,
+    RelativeBatteryPackConsoleLogs = 55,
+    PuffinMetadata = 56,
 }
 
 // MetadataType enum
@@ -175,6 +267,9 @@ pub enum CommandNumber {
     SetAdvertisingName = 140,
     GetHello = 145,
     EnableOpticalData = 107,
+    GetBatteryPackInfo = 151,
+    TogglePersistentR20 = 153,
+    TogglePersistentR21 = 154,
 }
 
 impl PacketType {
@@ -191,6 +286,10 @@ impl PacketType {
             50 => Some(Self::ConsoleLogs),
             51 => Some(Self::RealtimeImuDataStream),
             52 => Some(Self::HistoricalImuDataStream),
+            53 => Some(Self::RelativePuffinEvents),
+            54 => Some(Self::PuffinEventsFromStrap),
+            55 => Some(Self::RelativeBatteryPackConsoleLogs),
+            56 => Some(Self::PuffinMetadata),
             _ => None,
         }
     }
@@ -285,6 +384,9 @@ impl CommandNumber {
             140 => Some(Self::SetAdvertisingName),
             145 => Some(Self::GetHello),
             107 => Some(Self::EnableOpticalData),
+            151 => Some(Self::GetBatteryPackInfo),
+            153 => Some(Self::TogglePersistentR20),
+            154 => Some(Self::TogglePersistentR21),
             _ => None,
         }
     }
@@ -341,6 +443,10 @@ mod tests {
             PacketType::ConsoleLogs,
             PacketType::RealtimeImuDataStream,
             PacketType::HistoricalImuDataStream,
+            PacketType::RelativePuffinEvents,
+            PacketType::PuffinEventsFromStrap,
+            PacketType::RelativeBatteryPackConsoleLogs,
+            PacketType::PuffinMetadata,
         ];
         for pt in types {
             assert_eq!(PacketType::from_u8(pt.as_u8()), Some(pt));

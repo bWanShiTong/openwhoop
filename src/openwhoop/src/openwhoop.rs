@@ -1,11 +1,14 @@
 use btleplug::api::ValueNotification;
 use chrono::{DateTime, Local, TimeDelta};
-use openwhoop_entities::packets;
-use openwhoop_db::{DatabaseHandler, SearchHistory};
 use openwhoop_codec::{
     Activity, HistoryReading, WhoopData, WhoopPacket,
-    constants::{CMD_FROM_STRAP, DATA_FROM_STRAP, MetadataType},
+    constants::{
+        CMD_FROM_STRAP_GEN4, CMD_FROM_STRAP_GEN5, DATA_FROM_STRAP_GEN4, DATA_FROM_STRAP_GEN5,
+        MetadataType, WhoopGeneration,
+    },
 };
+use openwhoop_db::{DatabaseHandler, SearchHistory};
+use openwhoop_entities::packets;
 
 use crate::{
     algo::{
@@ -20,15 +23,17 @@ pub struct OpenWhoop {
     pub packet: Option<WhoopPacket>,
     pub last_history_packet: Option<HistoryReading>,
     pub history_packets: Vec<HistoryReading>,
+    pub generation: WhoopGeneration,
 }
 
 impl OpenWhoop {
-    pub fn new(database: DatabaseHandler) -> Self {
+    pub fn new(database: DatabaseHandler, generation: WhoopGeneration) -> Self {
         Self {
             database,
             packet: None,
             last_history_packet: None,
             history_packets: Vec::new(),
+            generation,
         }
     }
 
@@ -48,12 +53,20 @@ impl OpenWhoop {
         &mut self,
         packet: packets::Model,
     ) -> anyhow::Result<Option<WhoopPacket>> {
-        let data = match packet.uuid {
-            DATA_FROM_STRAP => {
-                let packet = if let Some(mut whoop_packet) = self.packet.take() {
-                    // TODO: maybe not needed but it would be nice to handle packet length here
-                    // so if next packet contains end of one and start of another it is handled
+        let parse_packet = match self.generation {
+            WhoopGeneration::Placeholder => todo!(),
+            WhoopGeneration::Gen4 => WhoopPacket::from_data,
+            WhoopGeneration::Gen5 => WhoopPacket::from_data_maverick,
+        };
+        let data_from_packet = match self.generation {
+            WhoopGeneration::Placeholder => todo!(),
+            WhoopGeneration::Gen4 => WhoopData::from_packet_gen4,
+            WhoopGeneration::Gen5 => WhoopData::from_packet_gen5,
+        };
 
+        let data = match packet.uuid {
+            DATA_FROM_STRAP_GEN4 | DATA_FROM_STRAP_GEN5 => {
+                let packet = if let Some(mut whoop_packet) = self.packet.take() {
                     whoop_packet.data.extend_from_slice(&packet.bytes);
 
                     if whoop_packet.data.len() + 3 >= whoop_packet.size {
@@ -63,7 +76,7 @@ impl OpenWhoop {
                         return Ok(None);
                     }
                 } else {
-                    let packet = WhoopPacket::from_data(packet.bytes)?;
+                    let packet = parse_packet(packet.bytes)?;
                     if packet.partial {
                         self.packet = Some(packet);
                         return Ok(None);
@@ -71,19 +84,23 @@ impl OpenWhoop {
                     packet
                 };
 
-                let Ok(data) = WhoopData::from_packet(packet) else {
-                    return Ok(None);
-                };
-                data
+                match data_from_packet(packet) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        trace!(target: "handle_packet", "DATA unhandled: {}", e);
+                        return Ok(None);
+                    }
+                }
             }
-            CMD_FROM_STRAP => {
-                let packet = WhoopPacket::from_data(packet.bytes)?;
-
-                let Ok(data) = WhoopData::from_packet(packet) else {
-                    return Ok(None);
-                };
-
-                data
+            CMD_FROM_STRAP_GEN4 | CMD_FROM_STRAP_GEN5 => {
+                let packet = parse_packet(packet.bytes)?;
+                match data_from_packet(packet) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        trace!(target: "handle_packet", "CMD unhandled: {}", e);
+                        return Ok(None);
+                    }
+                }
             }
             _ => return Ok(None),
         };
@@ -118,7 +135,7 @@ impl OpenWhoop {
 
                 self.history_packets.push(hr);
             }
-            WhoopData::HistoryMetadata { data, cmd, .. } => match cmd {
+            WhoopData::HistoryMetadata { end_data, cmd, .. } => match cmd {
                 MetadataType::HistoryComplete => {}
                 MetadataType::HistoryStart => {}
                 MetadataType::HistoryEnd => {
@@ -126,7 +143,7 @@ impl OpenWhoop {
                         .create_readings(std::mem::take(&mut self.history_packets))
                         .await?;
 
-                    let packet = WhoopPacket::history_end(data);
+                    let packet = WhoopPacket::history_end(end_data);
                     return Ok(Some(packet));
                 }
             },
@@ -136,10 +153,15 @@ impl OpenWhoop {
             WhoopData::RunAlarm { .. } => {}
             WhoopData::AlarmInfo { .. } => {}
             WhoopData::Event { .. } => {}
+            WhoopData::UnknownEvent { .. } => {}
+            WhoopData::CommandResponse(_) => {}
             WhoopData::VersionInfo { harvard, boylston } => {
                 info!("version harvard {} boylston {}", harvard, boylston);
             }
-            _ => {}
+            WhoopData::HistoryReading(_) => {}
+            WhoopData::RealtimeHr { unix, bpm } => {
+                info!(target: "RealtimeHr", "time: {}, bpm: {}", unix, bpm);
+            }
         }
 
         Ok(None)
@@ -278,8 +300,9 @@ impl OpenWhoop {
         loop {
             let last = self.database.last_spo2_time().await?;
             let options = SearchHistory {
-                from: last
-                    .map(|t| t - TimeDelta::seconds(i64::try_from(SpO2Calculator::WINDOW_SIZE).unwrap_or(0))),
+                from: last.map(|t| {
+                    t - TimeDelta::seconds(i64::try_from(SpO2Calculator::WINDOW_SIZE).unwrap_or(0))
+                }),
                 to: None,
                 limit: Some(86400),
             };
@@ -331,8 +354,11 @@ impl OpenWhoop {
         loop {
             let last_stress = self.database.last_stress_time().await?;
             let options = SearchHistory {
-                from: last_stress
-                    .map(|t| t - TimeDelta::seconds(i64::try_from(StressCalculator::MIN_READING_PERIOD).unwrap_or(0))),
+                from: last_stress.map(|t| {
+                    t - TimeDelta::seconds(
+                        i64::try_from(StressCalculator::MIN_READING_PERIOD).unwrap_or(0),
+                    )
+                }),
                 to: None,
                 limit: Some(86400),
             };

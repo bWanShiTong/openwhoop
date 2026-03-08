@@ -2,11 +2,11 @@ use std::fmt::Display;
 
 use chrono::TimeDelta;
 
-use openwhoop_codec::WhoopError;
 use crate::helpers::{
     format_hm::FormatHM,
     time_math::{mean_deltas, std_dev_delta},
 };
+use openwhoop_codec::WhoopError;
 use openwhoop_types::activities::ActivityPeriod;
 
 #[derive(Debug, Default)]

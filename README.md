@@ -2,7 +2,7 @@
 
 OpenWhoop is a project that allows you to download and analyze health data directly from your Whoop 4.0 device without a Whoop subscription or Whoop's servers, making the data your own.
 
-Features include sleep detection, exercise detection, stress calculation, HRV analysis, SpO2, skin temperature, and strain scoring — all computed locally from raw sensor data.
+Features include sleep detection, exercise detection, stress calculation, HRV analysis, SpO2, skin temperature, and strain scoring - all computed locally from raw sensor data.
 
 ## Getting Started
 

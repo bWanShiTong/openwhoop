@@ -1,5 +1,10 @@
 use chrono::NaiveDateTime;
 
+pub enum HistoryReadingResult {
+    Reading(HistoryReading),
+    Tombstone, // OR Pulse Information Packet
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct HistoryReading {
     pub unix: u64,
@@ -38,6 +43,8 @@ pub struct SensorData {
     pub skin_contact: u8,
     /// Accelerometer gravity vector [x, y, z] (magnitude ~= 1.0g)
     pub accel_gravity: [f32; 3],
+    /// SpO2 percentage (0-100). Present in Gen5 K=18 packets; None for Gen4.
+    pub spo2_pct: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
