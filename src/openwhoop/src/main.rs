@@ -22,7 +22,7 @@ use clap_complete::{Shell, generate};
 use dotenv::dotenv;
 use openwhoop::api;
 use openwhoop::{
-    OpenWhoop, WhoopDevice,
+    HistorySyncConfig, OpenWhoop, WhoopDevice,
     algo::{ExerciseMetrics, SleepConsistencyAnalyzer},
     db::DatabaseHandler,
     types::activities::{ActivityType, SearchActivityPeriods},
@@ -65,6 +65,20 @@ pub enum OpenWhoopCommand {
     DownloadHistory {
         #[arg(long, env)]
         whoop: DeviceId,
+        #[arg(
+            long,
+            env = "OPENWHOOP_HISTORY_TIMEOUT_SECS",
+            default_value_t = 0,
+            help = "Overall Gen5 history timeout in seconds; 0 disables the wall-clock cap"
+        )]
+        history_timeout_secs: u64,
+        #[arg(
+            long,
+            env = "OPENWHOOP_HISTORY_IDLE_TIMEOUT_SECS",
+            default_value_t = 20,
+            help = "Fail the transfer if no Gen5 history packets arrive for this many seconds"
+        )]
+        history_idle_timeout_secs: u64,
     },
     ///
     /// Reruns the packet processing on stored packets
@@ -456,7 +470,11 @@ impl OpenWhoopCli {
             OpenWhoopCommand::Scan => {
                 scan_command(&adapter, None).await?;
             }
-            OpenWhoopCommand::DownloadHistory { whoop } => {
+            OpenWhoopCommand::DownloadHistory {
+                whoop,
+                history_timeout_secs,
+                history_idle_timeout_secs,
+            } => {
                 let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
                 let mut whoop = WhoopDevice::new(
                     peripheral,
@@ -476,7 +494,15 @@ impl OpenWhoopCli {
 
                 whoop.connect().await?;
                 whoop.initialize().await?;
-                whoop.sync_history(should_exit).await?;
+                whoop
+                    .sync_history(
+                        should_exit,
+                        HistorySyncConfig::from_secs(
+                            history_timeout_secs,
+                            history_idle_timeout_secs,
+                        ),
+                    )
+                    .await?;
 
                 info!("Exiting...");
 

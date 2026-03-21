@@ -17,7 +17,7 @@ use std::{
 };
 use tokio::time::timeout;
 
-use super::WhoopDevice;
+use super::{HistorySyncConfig, WhoopDevice};
 
 pub(super) struct Gen5HistorySync<'a, S>
 where
@@ -26,6 +26,7 @@ where
     device: &'a mut WhoopDevice,
     should_exit: Arc<AtomicBool>,
     notifications: S,
+    config: HistorySyncConfig,
     queued_packets: VecDeque<WhoopPacket>,
     pending_readings: Vec<HistoryReading>,
     saw_stream_activity: bool,
@@ -43,11 +44,13 @@ where
         device: &'a mut WhoopDevice,
         should_exit: Arc<AtomicBool>,
         notifications: S,
+        config: HistorySyncConfig,
     ) -> Self {
         Self {
             device,
             should_exit,
             notifications,
+            config,
             queued_packets: VecDeque::new(),
             pending_readings: Vec::new(),
             saw_stream_activity: false,
@@ -81,8 +84,8 @@ where
 
     async fn run(&mut self) -> anyhow::Result<()> {
         const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
-        const STREAM_TIMEOUT: Duration = Duration::from_secs(300);
-        const IDLE_TIMEOUT: Duration = Duration::from_secs(20);
+        let stream_timeout = self.config.overall_timeout;
+        let idle_timeout = self.config.idle_timeout;
 
         match self
             .send_command_wait_response(WhoopPacket::get_data_range_gen5(), COMMAND_TIMEOUT, true)
@@ -127,15 +130,22 @@ where
         let started_at = Instant::now();
         while !self.should_exit.load(Ordering::SeqCst) {
             let elapsed = started_at.elapsed();
-            if elapsed >= STREAM_TIMEOUT {
-                bail!(
-                    "Historical transfer timed out after {} seconds",
-                    STREAM_TIMEOUT.as_secs()
-                );
+            if let Some(stream_timeout) = stream_timeout {
+                if elapsed >= stream_timeout {
+                    bail!(
+                        "Historical transfer timed out after {} seconds",
+                        stream_timeout.as_secs()
+                    );
+                }
             }
 
-            let remaining = STREAM_TIMEOUT - elapsed;
-            let wait_for = IDLE_TIMEOUT.min(remaining);
+            let wait_for = match stream_timeout {
+                Some(stream_timeout) => {
+                    let remaining = stream_timeout.saturating_sub(elapsed);
+                    idle_timeout.min(remaining)
+                }
+                None => idle_timeout,
+            };
             let packet = match self.next_packet(wait_for).await {
                 Ok(Some(packet)) => packet,
                 Ok(None) => break,

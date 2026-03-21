@@ -24,6 +24,31 @@ mod gen5_sync;
 
 use self::gen5_sync::Gen5HistorySync;
 
+#[derive(Debug, Clone, Copy)]
+pub struct HistorySyncConfig {
+    pub overall_timeout: Option<Duration>,
+    pub idle_timeout: Duration,
+}
+
+impl Default for HistorySyncConfig {
+    fn default() -> Self {
+        Self {
+            overall_timeout: None,
+            idle_timeout: Duration::from_secs(20),
+        }
+    }
+}
+
+impl HistorySyncConfig {
+    pub fn from_secs(overall_timeout_secs: u64, idle_timeout_secs: u64) -> Self {
+        Self {
+            overall_timeout: (overall_timeout_secs > 0)
+                .then(|| Duration::from_secs(overall_timeout_secs)),
+            idle_timeout: Duration::from_secs(idle_timeout_secs.max(1)),
+        }
+    }
+}
+
 pub struct WhoopDevice {
     peripheral: Peripheral,
     whoop: OpenWhoop,
@@ -115,17 +140,24 @@ impl WhoopDevice {
         Ok(seq)
     }
 
-    pub async fn sync_history(&mut self, should_exit: Arc<AtomicBool>) -> anyhow::Result<()> {
+    pub async fn sync_history(
+        &mut self,
+        should_exit: Arc<AtomicBool>,
+        config: HistorySyncConfig,
+    ) -> anyhow::Result<()> {
         match self.generation {
             WhoopGeneration::Gen4 => self.sync_history_gen4(should_exit).await,
-            WhoopGeneration::Gen5 => self.sync_history_gen5(should_exit).await,
+            WhoopGeneration::Gen5 => self.sync_history_gen5(should_exit, config).await,
             WhoopGeneration::Placeholder => Err(anyhow!(
                 "WhoopGeneration::Placeholder cannot be used for history sync"
             )),
         }
     }
 
-    async fn sync_history_gen4(&mut self, should_exit: Arc<AtomicBool>) -> anyhow::Result<()> {
+    async fn sync_history_gen4(
+        &mut self,
+        should_exit: Arc<AtomicBool>,
+    ) -> anyhow::Result<()> {
         let mut notifications = self.peripheral.notifications().await?;
 
         self.send_command(WhoopPacket::hello_harvard()).await?;
@@ -154,9 +186,13 @@ impl WhoopDevice {
         Ok(())
     }
 
-    pub async fn sync_history_gen5(&mut self, should_exit: Arc<AtomicBool>) -> anyhow::Result<()> {
+    pub async fn sync_history_gen5(
+        &mut self,
+        should_exit: Arc<AtomicBool>,
+        config: HistorySyncConfig,
+    ) -> anyhow::Result<()> {
         let notifications = self.peripheral.notifications().await?;
-        Gen5HistorySync::new(self, should_exit, notifications)
+        Gen5HistorySync::new(self, should_exit, notifications, config)
             .start()
             .await
     }
