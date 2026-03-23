@@ -101,6 +101,13 @@ pub enum OpenWhoopCommand {
         alarm_time: AlarmTime,
     },
     ///
+    /// Get current alarm setting from device
+    ///
+    GetAlarm {
+        #[arg(long, env)]
+        whoop: DeviceId,
+    },
+    ///
     /// Copy packets from one database into another
     ///
     Merge { from: String },
@@ -531,6 +538,27 @@ impl OpenWhoopCli {
                 let time = time.with_timezone(&Local);
 
                 println!("Alarm time set for: {}", time.format("%Y-%m-%d %H:%M:%S"));
+            }
+            OpenWhoopCommand::GetAlarm { whoop } => {
+                let peripheral = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop = WhoopDevice::new(peripheral, adapter, db_handler, false);
+                whoop.connect().await?;
+                let data = whoop.get_alarm().await?;
+                if let openwhoop_codec::WhoopData::AlarmInfo { enabled, unix } = data {
+                    if enabled {
+                        let alarm_time = DateTime::from_timestamp(i64::from(unix), 0)
+                            .ok_or_else(|| anyhow!("Invalid alarm timestamp"))?
+                            .with_timezone(&Local);
+                        println!(
+                            "Alarm is set for: {}",
+                            alarm_time.format("%Y-%m-%d %H:%M:%S")
+                        );
+                    } else {
+                        println!("No alarm is currently set");
+                    }
+                } else {
+                    error!("Unexpected response from device: {:?}", data);
+                }
             }
             OpenWhoopCommand::Merge { from } => {
                 let from_db = DatabaseHandler::new(from).await;

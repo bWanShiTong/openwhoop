@@ -170,4 +170,22 @@ impl WhoopDevice {
             Err(_) => Err(anyhow!("timed out waiting for version notification")),
         }
     }
+
+    pub async fn get_alarm(&mut self) -> anyhow::Result<WhoopData> {
+        self.subscribe(CMD_FROM_STRAP).await?;
+
+        let mut notifications = self.peripheral.notifications().await?;
+        self.send_command(WhoopPacket::get_alarm_time()).await?;
+
+        let timeout_duration = Duration::from_secs(30);
+        match timeout(timeout_duration, notifications.next()).await {
+            Ok(Some(notification)) => {
+                let packet = WhoopPacket::from_data(notification.value)?;
+                let data = WhoopData::from_packet(packet)?;
+                Ok(data)
+            }
+            Ok(None) => Err(anyhow!("stream ended unexpectedly")),
+            Err(_) => Err(anyhow!("timed out waiting for alarm notification")),
+        }
+    }
 }
