@@ -90,6 +90,15 @@ impl WhoopPacket {
         )
     }
 
+    pub fn get_alarm_time() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::GetAlarmTime.as_u8(),
+            vec![0x00],
+        )
+    }
+
     pub fn toggle_imu_mode(value: bool) -> WhoopPacket {
         WhoopPacket::new(
             PacketType::Command,
@@ -273,6 +282,14 @@ mod tests {
         assert_command_packet(&p, CommandNumber::SetAlarmTime);
         assert_eq!(p.data[0], 0x01);
         assert_eq!(&p.data[1..5], &1700000000_u32.to_le_bytes());
+        assert_roundtrip(&p);
+    }
+
+    #[test]
+    fn get_alarm_time_packet() {
+        let p = WhoopPacket::get_alarm_time();
+        assert_command_packet(&p, CommandNumber::GetAlarmTime);
+        assert_eq!(p.data, vec![0x00]);
         assert_roundtrip(&p);
     }
 

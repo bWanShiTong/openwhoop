@@ -134,6 +134,7 @@ impl OpenWhoop {
                 trace!(target: "ConsoleLog", "{}", log);
             }
             WhoopData::RunAlarm { .. } => {}
+            WhoopData::AlarmInfo { .. } => {}
             WhoopData::Event { .. } => {}
             WhoopData::VersionInfo { harvard, boylston } => {
                 info!("version harvard {} boylston {}", harvard, boylston);

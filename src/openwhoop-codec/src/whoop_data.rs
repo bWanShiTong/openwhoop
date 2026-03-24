@@ -34,6 +34,10 @@ pub enum WhoopData {
         harvard: String,
         boylston: String,
     },
+    AlarmInfo {
+        enabled: bool,
+        unix: u32,
+    },
 }
 
 impl WhoopData {
@@ -50,6 +54,9 @@ impl WhoopData {
                 match command {
                     CommandNumber::ReportVersionInfo => {
                         Self::parse_report_version_info(packet.data)
+                    }
+                    CommandNumber::GetAlarmTime => {
+                        Self::parse_alarm_time_response(packet.data)
                     }
                     _ => Err(WhoopError::Unimplemented),
                 }
@@ -369,6 +376,14 @@ impl WhoopData {
             harvard: format!("{}.{}.{}.{}", h_major, h_minor, h_patch, h_build),
             boylston: format!("{}.{}.{}.{}", b_major, b_minor, b_patch, b_build),
         })
+    }
+
+    fn parse_alarm_time_response(mut data: Vec<u8>) -> Result<Self, WhoopError> {
+        let _ = data.read::<3>()?; // skip CommandResponse prefix
+        let enabled_byte = data.pop_front()?;
+        let enabled = enabled_byte != 0;
+        let unix = data.read_u32_le()?;
+        Ok(Self::AlarmInfo { enabled, unix })
     }
 }
 
