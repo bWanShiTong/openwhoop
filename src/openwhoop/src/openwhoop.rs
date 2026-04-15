@@ -1,5 +1,5 @@
 use btleplug::api::ValueNotification;
-use chrono::{DateTime, Local, TimeDelta};
+use chrono::{DateTime, Local, TimeDelta, Utc};
 use openwhoop_entities::packets;
 use openwhoop_db::{DatabaseHandler, SearchHistory};
 use openwhoop_codec::{
@@ -20,6 +20,7 @@ pub struct OpenWhoop {
     pub packet: Option<WhoopPacket>,
     pub last_history_packet: Option<HistoryReading>,
     pub history_packets: Vec<HistoryReading>,
+    pub history_complete: bool,
 }
 
 impl OpenWhoop {
@@ -29,6 +30,7 @@ impl OpenWhoop {
             packet: None,
             last_history_packet: None,
             history_packets: Vec::new(),
+            history_complete: false,
         }
     }
 
@@ -119,12 +121,33 @@ impl OpenWhoop {
                 self.history_packets.push(hr);
             }
             WhoopData::HistoryMetadata { data, cmd, .. } => match cmd {
-                MetadataType::HistoryComplete => {}
+                MetadataType::HistoryComplete => {
+                    if !self.history_packets.is_empty() {
+                        self.database
+                            .create_readings(std::mem::take(&mut self.history_packets))
+                            .await?;
+                    }
+                    self.history_complete = true;
+                }
                 MetadataType::HistoryStart => {}
                 MetadataType::HistoryEnd => {
                     self.database
                         .create_readings(std::mem::take(&mut self.history_packets))
                         .await?;
+
+                    // Some firmware never sends HistoryComplete; instead the strap
+                    // simply stops responding once it has handed over everything.
+                    // If our newest reading is within ~60s of now, we've caught up.
+                    let caught_up = self
+                        .last_history_packet
+                        .as_ref()
+                        .and_then(|hr| i64::try_from(hr.unix / 1000).ok())
+                        .is_some_and(|last_secs| Utc::now().timestamp() - last_secs < 60);
+
+                    if caught_up {
+                        self.history_complete = true;
+                        return Ok(None);
+                    }
 
                     let packet = WhoopPacket::history_end(data);
                     return Ok(Some(packet));

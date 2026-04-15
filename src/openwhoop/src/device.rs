@@ -109,6 +109,10 @@ impl WhoopDevice {
             if should_exit.load(Ordering::SeqCst) {
                 break;
             }
+            if self.whoop.history_complete {
+                info!("History download complete");
+                break;
+            }
             let notification = notifications.next();
             let sleep_ = sleep(Duration::from_secs(10));
 
