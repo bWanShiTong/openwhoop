@@ -275,45 +275,75 @@ impl OpenWhoop {
     }
 
     pub async fn calculate_spo2(&self) -> anyhow::Result<()> {
-        loop {
-            let last = self.database.last_spo2_time().await?;
-            let options = SearchHistory {
-                from: last
-                    .map(|t| t - TimeDelta::seconds(i64::try_from(SpO2Calculator::WINDOW_SIZE).unwrap_or(0))),
-                to: None,
-                limit: Some(86400),
-            };
+        const BATCH: u64 = 86400;
+        let window = SpO2Calculator::WINDOW_SIZE as i64;
 
-            let readings = self.database.search_sensor_readings(options).await?;
-            if readings.is_empty() || readings.len() <= SpO2Calculator::WINDOW_SIZE {
+        let mut from = self
+            .database
+            .last_spo2_time()
+            .await?
+            .map(|t| t - TimeDelta::seconds(window));
+
+        loop {
+            let readings = self
+                .database
+                .search_sensor_readings(SearchHistory {
+                    from,
+                    to: None,
+                    limit: Some(BATCH),
+                })
+                .await?;
+
+            if readings.len() < SpO2Calculator::WINDOW_SIZE {
                 break;
             }
 
-            let scores = readings
-                .windows(SpO2Calculator::WINDOW_SIZE)
-                .filter_map(SpO2Calculator::calculate);
-
-            for score in scores {
-                self.database.update_spo2_on_reading(score).await?;
+            for w in readings.windows(SpO2Calculator::WINDOW_SIZE) {
+                if let Some(score) = SpO2Calculator::calculate(w) {
+                    self.database.update_spo2_on_reading(score).await?;
+                }
             }
+
+            if (readings.len() as u64) < BATCH {
+                break;
+            }
+
+            // Cursor must advance independently of whether scores were produced;
+            // the prior implementation relied on last_spo2_time(), which only
+            // moves when a row gets written. Invalid tail windows then wedged
+            // the loop forever.
+            let next = Some(readings.last().unwrap().time - TimeDelta::seconds(window));
+            if next == from {
+                break;
+            }
+            from = next;
         }
 
         Ok(())
     }
 
     pub async fn calculate_skin_temp(&self) -> anyhow::Result<()> {
+        const BATCH: u64 = 86400;
+        let mut from: Option<chrono::NaiveDateTime> = None;
+
         loop {
             let readings = self
                 .database
                 .search_temp_readings(SearchHistory {
-                    limit: Some(86400),
-                    ..Default::default()
+                    from,
+                    to: None,
+                    limit: Some(BATCH),
                 })
                 .await?;
 
             if readings.is_empty() {
                 break;
             }
+
+            // Capture cursor before processing: search_temp_readings filters by
+            // `skin_temp IS NULL`, so any row where convert() returns None
+            // (raw < MIN_RAW) would otherwise re-appear forever.
+            let last_time = readings.last().unwrap().time;
 
             for reading in &readings {
                 if let Some(score) =
@@ -322,33 +352,58 @@ impl OpenWhoop {
                     self.database.update_skin_temp_on_reading(score).await?;
                 }
             }
+
+            if (readings.len() as u64) < BATCH {
+                break;
+            }
+            if Some(last_time) == from {
+                break;
+            }
+            from = Some(last_time);
         }
 
         Ok(())
     }
 
     pub async fn calculate_stress(&self) -> anyhow::Result<()> {
-        loop {
-            let last_stress = self.database.last_stress_time().await?;
-            let options = SearchHistory {
-                from: last_stress
-                    .map(|t| t - TimeDelta::seconds(i64::try_from(StressCalculator::MIN_READING_PERIOD).unwrap_or(0))),
-                to: None,
-                limit: Some(86400),
-            };
+        const BATCH: u64 = 86400;
+        let window = StressCalculator::MIN_READING_PERIOD as i64;
 
-            let history = self.database.search_history(options).await?;
-            if history.is_empty() || history.len() <= StressCalculator::MIN_READING_PERIOD {
+        let mut from = self
+            .database
+            .last_stress_time()
+            .await?
+            .map(|t| t - TimeDelta::seconds(window));
+
+        loop {
+            let history = self
+                .database
+                .search_history(SearchHistory {
+                    from,
+                    to: None,
+                    limit: Some(BATCH),
+                })
+                .await?;
+
+            if history.len() < StressCalculator::MIN_READING_PERIOD {
                 break;
             }
 
-            let stress_scores = history
-                .windows(StressCalculator::MIN_READING_PERIOD)
-                .filter_map(StressCalculator::calculate_stress);
-
-            for stress in stress_scores {
-                self.database.update_stress_on_reading(stress).await?;
+            for w in history.windows(StressCalculator::MIN_READING_PERIOD) {
+                if let Some(stress) = StressCalculator::calculate_stress(w) {
+                    self.database.update_stress_on_reading(stress).await?;
+                }
             }
+
+            if (history.len() as u64) < BATCH {
+                break;
+            }
+
+            let next = Some(history.last().unwrap().time - TimeDelta::seconds(window));
+            if next == from {
+                break;
+            }
+            from = next;
         }
 
         Ok(())
