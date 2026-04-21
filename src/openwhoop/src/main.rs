@@ -2,7 +2,8 @@
 extern crate log;
 
 use std::{
-    io,
+    env, fs, io,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{
         Arc,
@@ -11,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use btleplug::{
     api::{BDAddr, Central, Manager as _, Peripheral as _, ScanFilter},
     platform::{Adapter, Manager, Peripheral},
@@ -34,6 +35,8 @@ use openwhoop_codec::{
 use openwhoop_entities::packets;
 use tokio::time::sleep;
 
+const OPENWHOOP_CONFIG_DIR: &str = ".openwhoop";
+
 #[cfg(target_os = "linux")]
 pub type DeviceId = BDAddr;
 
@@ -45,7 +48,7 @@ pub struct OpenWhoopCli {
     #[arg(env, long)]
     pub debug_packets: bool,
     #[arg(env, long)]
-    pub database_url: String,
+    pub database_url: Option<String>,
     #[cfg(target_os = "linux")]
     #[arg(env, long)]
     pub ble_interface: Option<String>,
@@ -59,6 +62,14 @@ pub enum OpenWhoopCommand {
     /// Scan for Whoop devices
     ///
     Scan,
+    ///
+    /// Set the default Whoop device in ~/.openwhoop/.env
+    ///
+    SetWhoop { whoop: DeviceId },
+    ///
+    /// Set the default remote database URL in ~/.openwhoop/.env
+    ///
+    SetRemote { remote: String },
     ///
     /// Download history data from whoop devices
     ///
@@ -212,9 +223,7 @@ pub enum OpenWhoopCommand {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if let Err(error) = dotenv() {
-        println!("{}", error);
-    }
+    load_cli_env();
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .filter_module("sqlx::query", log::LevelFilter::Off)
@@ -224,6 +233,145 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     OpenWhoopCli::parse().run().await
+}
+
+fn load_cli_env() {
+    if cfg!(debug_assertions) {
+        if let Err(error) = dotenv() {
+            println!("{}", error);
+        }
+        return;
+    }
+
+    let Some(env_path) = openwhoop_env_path() else {
+        return;
+    };
+    if env_path.is_file() {
+        if let Err(error) = dotenv::from_path(&env_path) {
+            println!("{}", error);
+        }
+    }
+}
+
+fn openwhoop_config_dir_from(home: impl Into<PathBuf>) -> PathBuf {
+    home.into().join(OPENWHOOP_CONFIG_DIR)
+}
+
+fn openwhoop_config_dir() -> Option<PathBuf> {
+    env::var_os("HOME").map(openwhoop_config_dir_from)
+}
+
+fn openwhoop_env_path_from(home: impl Into<PathBuf>) -> PathBuf {
+    openwhoop_config_dir_from(home).join(".env")
+}
+
+fn openwhoop_env_path() -> Option<PathBuf> {
+    env::var_os("HOME").map(openwhoop_env_path_from)
+}
+
+fn format_dotenv_value(value: &str) -> String {
+    if value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':'))
+    {
+        value.to_string()
+    } else {
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    }
+}
+
+fn upsert_dotenv_value(contents: &str, key: &str, value: &str) -> String {
+    let assignment = format!("{key}={}", format_dotenv_value(value));
+    let mut replaced = false;
+    let mut lines = Vec::new();
+
+    for line in contents.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(&format!("{key}=")) || trimmed.starts_with(&format!("export {key}="))
+        {
+            if !replaced {
+                lines.push(assignment.clone());
+                replaced = true;
+            }
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+
+    if !replaced {
+        lines.push(assignment);
+    }
+
+    let mut updated = lines.join("\n");
+    updated.push('\n');
+    updated
+}
+
+fn write_openwhoop_env_value(env_path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+    if let Some(parent) = env_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let contents = match fs::read_to_string(env_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", env_path.display()));
+        }
+    };
+
+    fs::write(env_path, upsert_dotenv_value(&contents, key, value))
+        .with_context(|| format!("failed to write {}", env_path.display()))
+}
+
+fn set_default_whoop(whoop: &DeviceId) -> anyhow::Result<PathBuf> {
+    let Some(env_path) = openwhoop_env_path() else {
+        anyhow::bail!("HOME is unavailable");
+    };
+
+    write_openwhoop_env_value(&env_path, "WHOOP", &whoop.to_string())?;
+    Ok(env_path)
+}
+
+fn set_default_remote(remote: &str) -> anyhow::Result<PathBuf> {
+    let Some(env_path) = openwhoop_env_path() else {
+        anyhow::bail!("HOME is unavailable");
+    };
+
+    write_openwhoop_env_value(&env_path, "REMOTE", remote)?;
+    Ok(env_path)
+}
+
+fn default_sqlite_database_url(config_dir: &Path) -> String {
+    format!(
+        "sqlite://{}?mode=rwc",
+        config_dir.join("db.sqlite").display()
+    )
+}
+
+fn default_database_url() -> anyhow::Result<Option<String>> {
+    let Some(config_dir) = openwhoop_config_dir() else {
+        return Ok(None);
+    };
+
+    fs::create_dir_all(&config_dir)
+        .with_context(|| format!("failed to create {}", config_dir.display()))?;
+
+    Ok(Some(default_sqlite_database_url(&config_dir)))
+}
+
+fn resolve_database_url(database_url: Option<String>) -> anyhow::Result<String> {
+    if let Some(database_url) = database_url {
+        return Ok(database_url);
+    }
+
+    if cfg!(debug_assertions) {
+        anyhow::bail!("DATABASE_URL is not set");
+    }
+
+    default_database_url()?
+        .ok_or_else(|| anyhow!("DATABASE_URL is not set and HOME is unavailable"))
 }
 
 async fn download_firmware(
@@ -437,6 +585,18 @@ pub fn sanitize_name(name: &str) -> String {
 
 impl OpenWhoopCli {
     async fn run(self) -> anyhow::Result<()> {
+        if let OpenWhoopCommand::SetWhoop { whoop } = &self.subcommand {
+            let env_path = set_default_whoop(whoop)?;
+            println!("Set WHOOP={} in {}", whoop, env_path.display());
+            return Ok(());
+        }
+
+        if let OpenWhoopCommand::SetRemote { remote } = &self.subcommand {
+            let env_path = set_default_remote(remote)?;
+            println!("Set REMOTE={} in {}", remote, env_path.display());
+            return Ok(());
+        }
+
         if let OpenWhoopCommand::DownloadFirmware {
             email,
             password,
@@ -463,13 +623,16 @@ impl OpenWhoopCli {
             .await;
         }
 
+        let database_url = resolve_database_url(self.database_url.clone())?;
         let adapter = self.create_ble_adapter().await?;
-        let db_handler = DatabaseHandler::new(self.database_url).await;
+        let db_handler = DatabaseHandler::new(database_url).await;
 
         match self.subcommand {
             OpenWhoopCommand::Scan => {
                 scan_command(&adapter, None).await?;
             }
+            OpenWhoopCommand::SetWhoop { .. } => unreachable!(),
+            OpenWhoopCommand::SetRemote { .. } => unreachable!(),
             OpenWhoopCommand::DownloadHistory {
                 whoop,
                 history_timeout_secs,

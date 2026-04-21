@@ -154,10 +154,7 @@ impl WhoopDevice {
         }
     }
 
-    async fn sync_history_gen4(
-        &mut self,
-        should_exit: Arc<AtomicBool>,
-    ) -> anyhow::Result<()> {
+    async fn sync_history_gen4(&mut self, should_exit: Arc<AtomicBool>) -> anyhow::Result<()> {
         let mut notifications = self.peripheral.notifications().await?;
 
         self.send_command(WhoopPacket::hello_harvard()).await?;
@@ -344,6 +341,7 @@ impl WhoopDevice {
     }
 
     pub async fn get_alarm(&mut self) -> anyhow::Result<WhoopData> {
+        self.subscribe(self.generation.cmd_from_strap()).await?;
         let mut notifications = self.peripheral.notifications().await?;
         self.send_command(WhoopPacket::get_alarm_time()).await?;
 
@@ -351,7 +349,7 @@ impl WhoopDevice {
         match timeout(timeout_duration, notifications.next()).await {
             Ok(Some(notification)) => {
                 let packet = WhoopPacket::from_data(notification.value)?;
-                let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4)?;
+                let data = WhoopData::from_packet(packet, self.generation)?;
                 Ok(data)
             }
             Ok(None) => Err(anyhow!("stream ended unexpectedly")),
