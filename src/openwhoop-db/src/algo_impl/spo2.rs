@@ -106,6 +106,7 @@ mod tests {
             signal_quality: 0,
             skin_contact: 1,
             accel_gravity: [0.0, 0.0, 1.0],
+            spo2_pct: None,
         };
 
         let reading = openwhoop_codec::HistoryReading {

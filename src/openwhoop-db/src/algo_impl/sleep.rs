@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
-use openwhoop_entities::sleep_cycles;
 use openwhoop_algos::SleepCycle;
+use openwhoop_entities::sleep_cycles;
 use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::DatabaseHandler;

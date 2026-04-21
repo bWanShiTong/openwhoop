@@ -29,10 +29,7 @@ impl SkinTempCalculator {
         }
 
         let temp_celsius = f64::from(skin_temp_raw) * Self::CONVERSION_FACTOR;
-        Some(SkinTempScore {
-            time,
-            temp_celsius,
-        })
+        Some(SkinTempScore { time, temp_celsius })
     }
 }
 

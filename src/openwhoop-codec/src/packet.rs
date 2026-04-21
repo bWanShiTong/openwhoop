@@ -87,6 +87,129 @@ impl WhoopPacket {
         packet
     }
 
+    // used in gen5 header
+    fn crc16(data: &[u8]) -> u16 {
+        let mut crc: u16 = 0xFFFF;
+        for &byte in data {
+            crc ^= u16::from(byte);
+            for _ in 0..8 {
+                if crc & 1 != 0 {
+                    crc = (crc >> 1) ^ 0xA001;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+        crc
+    }
+
+    /// WHOOP 5.0 frame:
+    /// [SOF=0xAA][Flags=0x01][Length u16 LE][DestRole=0x00][SrcRole=0x01][CRC16 of bytes 0-5][Payload][CRC32 of payload]
+    /// The payload is zero-padded to the next 4-byte boundary before CRC32 is
+    /// computed, matching the `_align4` step in the reference implementation.
+    pub fn framed_packet_maverick(&self) -> Result<Vec<u8>, WhoopError> {
+        let pkt = self.create_packet();
+        // Zero-pad to next 4-byte boundary.
+        let padding = pkt.len().wrapping_neg() % 4;
+        let mut pkt_aligned = pkt;
+        pkt_aligned.resize(pkt_aligned.len() + padding, 0u8);
+
+        let length = u16::try_from(pkt_aligned.len() + 4).map_err(|_| WhoopError::Overflow)?;
+
+        let mut header = vec![
+            0xAA,                  // SOF
+            0x01,                  // Flags
+            (length & 0xFF) as u8, // Length LSB
+            (length >> 8) as u8,   // Length MSB
+            0x00,                  // DestRole (strap)
+            0x01,                  // SrcRole (host/app)
+        ];
+        let crc16 = Self::crc16(&header);
+        header.push((crc16 & 0xFF) as u8);
+        header.push((crc16 >> 8) as u8);
+
+        let crc32 = Self::crc32(&pkt_aligned).to_le_bytes();
+        let mut framed = header;
+        framed.extend_from_slice(&pkt_aligned);
+        framed.extend_from_slice(&crc32);
+
+        Ok(framed)
+    }
+
+    pub fn from_data_maverick(mut data: Vec<u8>) -> Result<Self, WhoopError> {
+        if data.len() < 8 {
+            return Err(WhoopError::PacketTooShort);
+        }
+
+        if data[0] != Self::SOF {
+            return Err(WhoopError::InvalidSof);
+        }
+
+        // verify CRC16 of header bytes 0-5
+        let stored_crc16 = u16::from_le_bytes([data[6], data[7]]);
+        let computed_crc16 = Self::crc16(&data[0..6]);
+        if computed_crc16 != stored_crc16 {
+            return Err(WhoopError::InvalidHeaderCrc16);
+        }
+
+        let length = usize::from(u16::from_le_bytes([data[2], data[3]]));
+
+        // remove 8-byte header, payload starts at index 8
+        let payload_start = 8;
+        let payload_data: Vec<u8> = data.drain(payload_start..).collect();
+        let partial = payload_data.len() < length;
+
+        let packet_len = if partial { 3 } else { 4 };
+        if payload_data.len() < packet_len {
+            return Err(WhoopError::InvalidPacketLength);
+        }
+
+        if !partial {
+            let (payload_body, crc_bytes) = payload_data.split_at(payload_data.len() - 4);
+            let stored_crc32 = u32::from_le_bytes(crc_bytes.try_into()?);
+            let computed_crc32 = Self::crc32(payload_body);
+            if computed_crc32 != stored_crc32 {
+                return Err(WhoopError::InvalidDataCrc32);
+            }
+
+            let mut body = payload_body.to_vec();
+            if body.len() < 3 {
+                return Err(WhoopError::InvalidPacketLength);
+            }
+
+            let packet_type_byte = body.remove(0);
+            let packet_type = PacketType::from_u8(packet_type_byte)
+                .ok_or(WhoopError::InvalidPacketType(packet_type_byte))?;
+
+            let seq = body.pop_front()?;
+            let cmd = body.pop_front()?;
+            Ok(Self {
+                packet_type,
+                seq,
+                cmd,
+                size: length,
+                data: body,
+                partial: false,
+            })
+        } else {
+            let mut body = payload_data;
+            let packet_type_byte = body.pop_front()?;
+            let packet_type = PacketType::from_u8(packet_type_byte)
+                .ok_or(WhoopError::InvalidPacketType(packet_type_byte))?;
+
+            let seq = body.pop_front()?;
+            let cmd = body.pop_front()?;
+            Ok(Self {
+                packet_type,
+                seq,
+                cmd,
+                size: length,
+                data: body,
+                partial: true,
+            })
+        }
+    }
+
     fn crc8(data: &[u8]) -> u8 {
         let mut crc: u8 = 0;
         for &byte in data {
@@ -238,5 +361,37 @@ mod tests {
         // SOF + 2 length + 1 CRC8 + 3 (type/seq/cmd) + 4 CRC32 = 11 bytes
         assert_eq!(framed[0], WhoopPacket::SOF);
         assert_eq!(framed.len(), 11);
+    }
+
+    #[test]
+    fn maverick_3byte_command_aligns_to_4() {
+        let p = WhoopPacket::new(crate::constants::PacketType::Command, 1, 34, vec![]);
+        let framed = p.framed_packet_maverick().unwrap();
+        assert_eq!(
+            framed,
+            hex::decode("aa0108000001e67123012200dbf3b335").unwrap(),
+            "get_data_range_gen5 frame mismatch"
+        );
+        // Inner payload length field == 8 (4-byte aligned body + 4-byte CRC32).
+        let length = u16::from_le_bytes([framed[2], framed[3]]) as usize;
+        assert_eq!(length, 8);
+    }
+
+    #[test]
+    fn maverick_4byte_aligned_command_unchanged() {
+        // history_end([0;8]): data = [0x01, 0,0,0,0,0,0,0,0] -> pkt = 12 bytes (already aligned)
+        let p = WhoopPacket::new(
+            crate::constants::PacketType::Command,
+            1,
+            23,
+            vec![0x01, 0, 0, 0, 0, 0, 0, 0, 0],
+        );
+        let framed = p.framed_packet_maverick().unwrap();
+        // 12-byte aligned body + 4 CRC32 = 16; length field should be 16.
+        let length = u16::from_le_bytes([framed[2], framed[3]]) as usize;
+        assert_eq!(length, 16);
+        // Should round-trip cleanly.
+        let parsed = WhoopPacket::from_data_maverick(framed).unwrap();
+        assert_eq!(parsed.cmd, 23);
     }
 }

@@ -1,20 +1,116 @@
 use crate::{
     WhoopError, WhoopPacket,
-    constants::{CommandNumber, MetadataType, PacketType},
+    constants::{CommandNumber, MetadataType, PacketType, WhoopGeneration},
     helpers::BufferReader,
 };
 
 mod history;
-pub use history::{Activity, HistoryReading, ImuSample, ParsedHistoryReading, SensorData};
+pub use history::{
+    Activity, HistoryReading, HistoryReadingResult, ImuSample, ParsedHistoryReading, SensorData,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DataRangeInfo {
+    pub start: u32,
+    pub end: u32,
+    pub rollover: u32,
+    pub distance: u32,
+}
+
+impl DataRangeInfo {
+    fn from_get_data_range_body(body: &[u8]) -> Option<Self> {
+        if body.len() < 25 {
+            return None;
+        }
+
+        let start = u32::from_le_bytes(body.get(9..13)?.try_into().ok()?);
+        let end = u32::from_le_bytes(body.get(13..17)?.try_into().ok()?);
+        let rollover = u32::from_le_bytes(body.get(21..25)?.try_into().ok()?);
+        let distance = if start < end {
+            start.saturating_add(rollover.saturating_sub(end))
+        } else {
+            start.saturating_sub(end)
+        };
+
+        Some(Self {
+            start,
+            end,
+            rollover,
+            distance,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GetDataRangeResponse {
+    Range(DataRangeInfo),
+    ShortPayload,
+    EmptyPayload,
+    UnrecognizedPayload { len: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhoopCommandResponse {
+    pub cmd: u8,
+    pub origin_seq: u8,
+    pub result: u8,
+    pub body: Vec<u8>,
+}
+
+impl WhoopCommandResponse {
+    pub fn from_packet(packet: &WhoopPacket) -> Result<Self, WhoopError> {
+        if packet.packet_type != PacketType::CommandResponse || packet.data.len() < 2 {
+            return Err(WhoopError::InvalidData);
+        }
+
+        Ok(Self {
+            cmd: packet.cmd,
+            origin_seq: packet.data[0],
+            result: packet.data[1],
+            body: packet.data[2..].to_vec(),
+        })
+    }
+
+    pub fn result_name(&self) -> &'static str {
+        Self::result_name_for(self.result)
+    }
+
+    pub fn result_name_for(result: u8) -> &'static str {
+        match result {
+            0 => "Failure",
+            1 => "Success",
+            2 => "Pending",
+            3 => "Unsupported",
+            _ => "Unknown",
+        }
+    }
+
+    pub fn get_data_range_response(&self) -> Option<GetDataRangeResponse> {
+        if CommandNumber::from_u8(self.cmd) != Some(CommandNumber::GetDataRange) {
+            return None;
+        }
+
+        Some(match self.body.len() {
+            0 => GetDataRangeResponse::EmptyPayload,
+            3 => GetDataRangeResponse::ShortPayload,
+            len if len < 25 => GetDataRangeResponse::UnrecognizedPayload { len },
+            len => match DataRangeInfo::from_get_data_range_body(&self.body) {
+                Some(range) => GetDataRangeResponse::Range(range),
+                None => GetDataRangeResponse::UnrecognizedPayload { len },
+            },
+        })
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum WhoopData {
     HistoryReading(HistoryReading),
     HistoryMetadata {
         unix: u32,
-        data: u32,
+        end_data: [u8; 8],
         cmd: MetadataType,
     },
+    CommandResponse(WhoopCommandResponse),
     ConsoleLog {
         unix: u32,
         log: String,
@@ -34,6 +130,10 @@ pub enum WhoopData {
         harvard: String,
         boylston: String,
     },
+    RealtimeHr {
+        unix: u32,
+        bpm: u8,
+    },
     AlarmInfo {
         enabled: bool,
         unix: u32,
@@ -41,12 +141,29 @@ pub enum WhoopData {
 }
 
 impl WhoopData {
-    pub fn from_packet(packet: WhoopPacket) -> Result<Self, WhoopError> {
+    pub fn from_packet(
+        packet: WhoopPacket,
+        generation: WhoopGeneration,
+    ) -> Result<Self, WhoopError> {
+        match generation {
+            WhoopGeneration::Gen4 => Self::from_packet_gen4(packet),
+            WhoopGeneration::Gen5 => Self::from_packet_gen5(packet),
+            WhoopGeneration::Placeholder => Err(WhoopError::Unimplemented),
+        }
+    }
+
+    pub fn from_packet_gen4(packet: WhoopPacket) -> Result<Self, WhoopError> {
         match packet.packet_type {
-            PacketType::HistoricalData => Self::parse_historical_packet(packet.seq, packet.data),
-            PacketType::Metadata => Self::parse_metadata(packet),
+            PacketType::HistoricalData => {
+                match Self::parse_historical_packet(packet.seq, packet.data)? {
+                    HistoryReadingResult::Reading(reading) => Ok(Self::HistoryReading(reading)),
+                    HistoryReadingResult::Tombstone => Err(WhoopError::Unimplemented),
+                }
+            }
+            PacketType::Metadata => Self::parse_metadata_gen4(packet),
             PacketType::ConsoleLogs => Self::parse_console_log(packet.data),
             PacketType::Event => Self::parse_event(packet),
+            PacketType::RealtimeData => Self::parse_realtime_hr(packet),
             PacketType::CommandResponse => {
                 let command = CommandNumber::from_u8(packet.cmd)
                     .ok_or(WhoopError::InvalidCommandType(packet.cmd))?;
@@ -55,14 +172,45 @@ impl WhoopData {
                     CommandNumber::ReportVersionInfo => {
                         Self::parse_report_version_info(packet.data)
                     }
-                    CommandNumber::GetAlarmTime => {
-                        Self::parse_alarm_time_response(packet.data)
-                    }
-                    _ => Err(WhoopError::Unimplemented),
+                    CommandNumber::GetAlarmTime => Self::parse_alarm_time_response(packet.data),
+                    _ => Self::parse_command_response(packet),
                 }
             }
             _ => Err(WhoopError::Unimplemented),
         }
+    }
+
+    pub fn from_packet_gen5(packet: WhoopPacket) -> Result<Self, WhoopError> {
+        match packet.packet_type {
+            PacketType::HistoricalData => {
+                match Self::parse_historical_packet_v5(packet.seq, packet.data)? {
+                    HistoryReadingResult::Reading(reading) => Ok(Self::HistoryReading(reading)),
+                    _ => Err(WhoopError::Unimplemented),
+                }
+            }
+            PacketType::Metadata => Self::parse_metadata_gen5(packet),
+            PacketType::ConsoleLogs => Self::parse_console_log(packet.data),
+            PacketType::Event => Self::parse_event(packet),
+            PacketType::RealtimeData => Self::parse_realtime_hr(packet),
+            PacketType::CommandResponse => Self::parse_command_response(packet),
+            _ => Err(WhoopError::Unimplemented),
+        }
+    }
+
+    fn parse_command_response(packet: WhoopPacket) -> Result<Self, WhoopError> {
+        Ok(Self::CommandResponse(WhoopCommandResponse::from_packet(
+            &packet,
+        )?))
+    }
+
+    fn parse_realtime_hr(packet: WhoopPacket) -> Result<Self, WhoopError> {
+        let ts0 = packet.cmd;
+        let mut data = packet.data;
+        let [ts1, ts2, ts3] = data.read::<3>()?;
+        let unix = u32::from_le_bytes([ts0, ts1, ts2, ts3]);
+        let _sub_seconds = data.read::<2>()?;
+        let bpm = data.pop_front()?;
+        Ok(Self::RealtimeHr { unix, bpm })
     }
 
     fn parse_event(mut packet: WhoopPacket) -> Result<Self, WhoopError> {
@@ -120,18 +268,49 @@ impl WhoopData {
         Ok(Self::ConsoleLog { unix, log })
     }
 
-    fn parse_metadata(mut packet: WhoopPacket) -> Result<Self, WhoopError> {
+    fn parse_metadata_gen4(mut packet: WhoopPacket) -> Result<Self, WhoopError> {
         let cmd =
             MetadataType::from_u8(packet.cmd).ok_or(WhoopError::InvalidMetadataType(packet.cmd))?;
 
         let unix = packet.data.read_u32_le()?;
-        let _padding = packet.data.read::<6>()?;
-        let data = packet.data.read_u32_le()?;
+        let _skip = packet.data.read::<6>()?;
+        let i = packet.data.read::<4>()?;
+        let j = packet.data.read::<4>()?;
+        let mut d = [0u8; 8];
+        d[..4].copy_from_slice(&i);
+        d[4..].copy_from_slice(&j);
 
-        Ok(Self::HistoryMetadata { unix, data, cmd })
+        Ok(Self::HistoryMetadata {
+            unix,
+            end_data: d,
+            cmd,
+        })
     }
 
-    fn parse_historical_packet(version: u8, packet: Vec<u8>) -> Result<Self, WhoopError> {
+    fn parse_metadata_gen5(mut packet: WhoopPacket) -> Result<Self, WhoopError> {
+        // TODO(whoop5): confirm metadata field layout across all WHOOP 5.0 firmware versions.
+        let cmd =
+            MetadataType::from_u8(packet.cmd).ok_or(WhoopError::InvalidMetadataType(packet.cmd))?;
+
+        let unix = packet.data.read_u32_le()?;
+        let _skip = packet.data.read::<6>()?;
+        let i = packet.data.read::<4>()?;
+        let j = packet.data.read::<4>()?;
+        let mut d = [0u8; 8];
+        d[..4].copy_from_slice(&i);
+        d[4..].copy_from_slice(&j);
+
+        Ok(Self::HistoryMetadata {
+            unix,
+            end_data: d,
+            cmd,
+        })
+    }
+
+    fn parse_historical_packet(
+        version: u8,
+        packet: Vec<u8>,
+    ) -> Result<HistoryReadingResult, WhoopError> {
         const MIN_PACKET_LEN_FOR_IMU: usize = 1188;
 
         if packet.len() >= MIN_PACKET_LEN_FOR_IMU {
@@ -146,8 +325,95 @@ impl WhoopData {
         Self::parse_historical_packet_generic(packet)
     }
 
+    fn parse_historical_packet_v5(
+        version: u8,
+        packet: Vec<u8>,
+    ) -> Result<HistoryReadingResult, WhoopError> {
+        const MIN_PACKET_LEN_FOR_IMU: usize = 1188;
+
+        if packet.len() >= MIN_PACKET_LEN_FOR_IMU {
+            return Self::parse_historical_packet_with_imu(packet);
+        }
+
+        if version == 18 {
+            return Self::parse_historical_packet_v18(packet);
+        }
+
+        // K=25/26 are PIP (Pulse Information Packet) batch packets - no standard BPM field.
+        // Return a tombstone (bpm=0) so callers that check is_valid() silently skip them.
+        if matches!(version, 25 | 26) {
+            return Ok(HistoryReadingResult::Tombstone);
+        }
+
+        todo!();
+    }
+
+    /// Version-18 (K=18) historical packet parser for WHOOP 5.0 (Maverick).
+    ///
+    /// Layout (offsets into packet.data = BleDataPacket[3:]):
+    ///   [0:4]   G counter (u32 LE)
+    ///   [4:8]   unix timestamp (u32 LE, seconds)
+    ///   [8:10]  subseconds (u16 LE)
+    ///   [10]    unknown byte
+    ///   [11]    heart rate (u8) - BleDataPacket[14], per ll0.b.J() for K=18
+    ///   [12:22] unknown/sensor fields (10 bytes)
+    ///   [22]    RR control byte: lower nibble = count of valid RR slots (0 or 1)
+    ///   [23:25] RR interval (u16 LE, ms) - valid when data[22] & 0x0f >= 1
+    ///   [25:30] 5 bytes (sub-count, constant 0x42, padding, unknown)
+    ///   [30:42] accelerometer gravity vector [x, y, z] (3 x f32 LE, magnitude ~1.0g)
+    ///   [42:48] 4th float (unknown) + 2 padding bytes
+    ///   [48]    SpO2 percentage (u8, 0-100)
+    fn parse_historical_packet_v18(
+        mut packet: Vec<u8>,
+    ) -> Result<HistoryReadingResult, WhoopError> {
+        let _sequence = packet.read::<4>()?;
+        let unix = u64::from(packet.read_u32_le()?) * 1000;
+        let _subsec_and_unk = packet.read::<3>()?; // subseconds (2) + 1 unknown byte
+        let bpm = packet.pop_front()?;
+        let _unknown_fields = packet.read::<10>()?;
+        let rr_control = packet.pop_front()?;
+        let rr_count = usize::from(rr_control & 0x0f);
+        let rr_raw = packet.read_u16_le()?;
+        let rr = if rr_count >= 1 { vec![rr_raw] } else { vec![] };
+
+        // Skip to gravity vector at data[30]: 5 bytes [25:30]
+        let _skip = packet.read::<5>()?;
+        let gx = f32::from_le_bytes(packet.read::<4>()?);
+        let gy = f32::from_le_bytes(packet.read::<4>()?);
+        let gz = f32::from_le_bytes(packet.read::<4>()?);
+        // Skip 4th float + 2 padding bytes to reach SpO2 at data[48]
+        let _skip2 = packet.read::<6>()?;
+        let spo2_pct = packet.pop_front().ok();
+
+        let sensor_data = SensorData {
+            ppg_green: 0,
+            ppg_red_ir: 0,
+            spo2_red: 0,
+            spo2_ir: 0,
+            skin_temp_raw: 0,
+            ambient_light: 0,
+            led_drive_1: 0,
+            led_drive_2: 0,
+            resp_rate_raw: 0,
+            signal_quality: 0,
+            skin_contact: 0,
+            accel_gravity: [gx, gy, gz],
+            spo2_pct,
+        };
+
+        Ok(HistoryReadingResult::Reading(HistoryReading {
+            unix,
+            bpm,
+            rr,
+            imu_data: Vec::new(),
+            sensor_data: Some(sensor_data),
+        }))
+    }
+
     /// Generic historical packet parser (V7, V9, V18, etc. - no DSP fields).
-    fn parse_historical_packet_generic(mut packet: Vec<u8>) -> Result<Self, WhoopError> {
+    fn parse_historical_packet_generic(
+        mut packet: Vec<u8>,
+    ) -> Result<HistoryReadingResult, WhoopError> {
         let _sequence = packet.read::<4>();
         let unix = u64::from(packet.read_u32_le()?) * 1000;
         let _sub_flags_sensors = packet.read::<6>();
@@ -166,7 +432,7 @@ impl WhoopData {
             return Err(WhoopError::InvalidRRCount);
         }
 
-        Ok(Self::HistoryReading(HistoryReading {
+        Ok(HistoryReadingResult::Reading(HistoryReading {
             unix,
             bpm,
             rr,
@@ -200,7 +466,7 @@ impl WhoopData {
     ///   [71:73] led_drive_2 (u16 LE)
     ///   [73:75] resp_rate_raw (u16 LE)
     ///   [75:77] signal_quality (u16 LE)
-    fn parse_historical_packet_v12(data: Vec<u8>) -> Result<Self, WhoopError> {
+    fn parse_historical_packet_v12(data: Vec<u8>) -> Result<HistoryReadingResult, WhoopError> {
         if data.len() < 77 {
             return Err(WhoopError::InvalidData);
         }
@@ -260,9 +526,10 @@ impl WhoopData {
             signal_quality: read_u16(75),
             skin_contact: d[48],
             accel_gravity: gravity,
+            spo2_pct: None,
         };
 
-        Ok(Self::HistoryReading(HistoryReading {
+        Ok(HistoryReadingResult::Reading(HistoryReading {
             unix,
             bpm,
             rr,
@@ -271,7 +538,9 @@ impl WhoopData {
         }))
     }
 
-    fn parse_historical_packet_with_imu(mut packet: Vec<u8>) -> Result<Self, WhoopError> {
+    fn parse_historical_packet_with_imu(
+        mut packet: Vec<u8>,
+    ) -> Result<HistoryReadingResult, WhoopError> {
         // Constants for IMU parsing
         const ACC_X_OFFSET: usize = 85;
         const ACC_Y_OFFSET: usize = 285;
@@ -353,7 +622,7 @@ impl WhoopData {
         }
 
         let unix = u64::from(unix_seconds) * 1000;
-        Ok(Self::HistoryReading(HistoryReading {
+        Ok(HistoryReadingResult::Reading(HistoryReading {
             unix,
             bpm,
             rr,
@@ -391,9 +660,9 @@ impl WhoopData {
 mod tests {
     use crate::{
         WhoopPacket,
-        constants::{MetadataType, PacketType},
+        constants::{CommandNumber, MetadataType, PacketType, WhoopGeneration},
         whoop_data::{
-            WhoopData,
+            GetDataRangeResponse, WhoopData,
             history::{HistoryReading, ImuSample},
         },
     };
@@ -404,7 +673,7 @@ mod tests {
             "aa8407f72f0a297020d700ec563568b860805418013e0145030000000000000020f12fff000000000000000000008033ac3c52c068bf1f25293eae57b63e0000224652c068bf1f25293eae57b63e38027302b5037602030166e0f0d4f001f11bf130f14ff123f1ddf0daf0eff010f134f158f16af139f10ff119f136f153f16af175f14ef122f1e5f0b9f0a2f08bf082f080f080f08ff0b5f0c0f097f06bf054f086f0a8f0a3f0a0f0bbf0c2f0bbf0bcf0f0f019f11df10ff10cf101f1fff0e9f0c1f09ef085f0a4f0d8f0fff041f14df159f159f13ef11bf116f1f3f0d6f0e0f0e1f0c5f0c9f0d8f0f9f013f119f11af10bf1edf0dbf0d6f0d5f0d1f0caf0def0faf0f5f0dcf0dcf0e6f0e6f0f8f0f4f0ecf0f4f0e7f002f10cf1faf0dbf0c8f08a03fa030b043304b5033803de020503810304044b0461045f047704590423042a041704dc03dc03fe032a04380430041d040b0416042d042f040a04ca03b403bd03e003cf036f03f902b6028f024d021202fb01ee012202d9027c0385039f0383039803a8039803620310031f032d031b030403130319031403e402f90241038b033f033b02aa01d801dd01c601cb01d501da01da01eb01e6018e014d017801bc01fe010202c001b601bf01be01bc01e3011402f701ce01a501dd01c0018a0163018a01b301e301d003c203bc0382045605ec0558063f061406fa05ba055b051505ad044304d20382034d033c034a0347033e033903360358039c03e6031c04420475049b0491046504440465048a045204440431040604ef03e003b5039c03ad0309043c046d046d048e04ad04c304ef04f7049b046d04ba04fe044d0574058f0567055c0563056a05730554053e051a0511050005e204f70414054a057e059205800556054a053905fb040505270523054605460546050f05ec0429050c05ef040b053b056605800586058d0572050501664f0243021802b5012a01d600d000f9002c013f011d01cf0070001700d6ffa3ff89ff8affa5ffd8ff150048005a0060007800a400d70001011801240128012b012001fa00b8004900b1ff26ffcefeb0fecdfe16ff80fff7ff5200710062004a0025000c00f0ffccffbaffc6ffe7ff13001f001100f5ffc3ff87ff34ffcafe3bfe87fdf5fcdffc42fddffd73fee6fe41ff7bff9bffa3ff8bff70ff6aff7effa1ffb2ffb6ffb6ffadffa1ff9bffacffd1fff8ff0b00feffe5ffe2ffecfff3fff8ff140040006c008f002bff25ff21ff14ff17ff3bff6cff99ffc0ffe3ff02001e00360048004c004c004900440038002a0021001a0011000500f7ffe8ffdfffdaffd4ffcdffcdffd6ffdaffd6ffc8ffaaff97ff93ff8dff82ff7eff76ff6bff62ff5dff5fff6aff74ff78ff77ff76ff78ff78ff77ff6eff64ff5bff59ff61ff6eff7cff8fffa4ffb4ffc3ffd1ffdbffdeffe0ffe5ffebfff2fff4fff0ffeaffe8ffeaffe9ffe5ffe1ffe2ffe6ffe4ffdfffe0ffe7ffedffecffecffeaffe1ffd3ffc9ffc1ffb6ffaeffadffacffa9ffacff1b00140008000800180030003b003a003100210012000a000c001200150018001f001f0015000e000500f8ffeaffe1ffd8ffc9ffb4ff9bff85ff72ff63ff56ff49ff3cff32ff31ff43ff59ff6aff76ff7fff87ff8cff91ff95ff91ff8fff98ffa2ffabffabffa6ff9cff90ff83ff71ff60ff56ff4eff4eff59ff69ff77ff86ff93ff9cffa2ffa2ff96ff87ff84ff8aff90ff95ff9cffa8ffb3ffbcffc5ffcbffceffd2ffd5ffdcffe7ffeffff2fff2fff4fff7fffbff0700110012000e001200170015000d000600000100000011f300000000000000000a000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000032040000050000010000032000000000000220000000000007000000ebffffff07000000f9fffffffbfffffff7fffffff8ffffff03000000f3ffffffd7fffffff7ffffff00000000fbffffff04000000e3ffffff11000000fafffffffdffffffecffffffdcffffff01000000fcffffffebfffffffaffffff0e000000f6fffffffbfffffffcffffff00000000f5ffffffedfffffffcffffff04000000f2fffffff6fffffffbfffffff6fffffffcffffffdbffffff07000000fefffffffffffffff8fffffff4fffffffaffffff01000000f9ffffffdfffffffeeffffff00000000f6fffffffaffffff01000000f7fffffffefffffff9fffffffbfffffffcfffffff3fffffffffffffffafffffffdffffffecffffff06000000f6fffffff7fffffff4fffffffafffffff9fffffffaffffff04000000fcffffff03000000fbfffffffafffffff3ffffff01000000fbfffffffcfffffffbfffffffffffffffffffffff1fffffff6fffffffbfffffff9fffffff9fffffffffffffff3fffffffcfffffffcfffffffdfffffffcfffffffbfffffff6ffffff03000000f9ffffff03000000ffffffff03000000312b0100f243aeb5",
         ).expect("msgpack error");
         let packet = WhoopPacket::from_data(data).expect("Invalid packet data");
-        let data = WhoopData::from_packet(packet).expect("Invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid packet");
         assert_eq!(
             data,
             WhoopData::HistoryReading(HistoryReading {
@@ -1222,7 +1491,7 @@ mod tests {
         // misreading PPG data as "activity"
         let data = hex::decode("aa5c00f02f0c050f0008029e7e2868906380542c01400000000000000000000021436dff904d893dec19fb3e5ccf9b3d0a03773f00000000ec19fb3e5ccf9b3d0a03773fe0015702eb02590239019004010c020c310000000000000115f49cd0").expect("Invalid hex data");
         let packet = WhoopPacket::from_data(data).expect("Invalid packet data");
-        let data = WhoopData::from_packet(packet).expect("Invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid packet");
         match &data {
             WhoopData::HistoryReading(r) => {
                 assert_eq!(r.unix, 1747484318000);
@@ -1242,7 +1511,7 @@ mod tests {
         // Another V12 packet with 1 RR interval
         let data = hex::decode("aa5c00f02f0c053f940900da106966280080545401360195040000000000000000a34cff0050bf3b144efb3da4a4463f299c0dbf00004c42144efb3da4a4463f299c0dbff40155023b03530255016004010c020c2000000000000002e8c17c8d").expect("Invalid hex data");
         let packet = WhoopPacket::from_data(data).expect("Invalid packet data");
-        let data = WhoopData::from_packet(packet).expect("Invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid packet");
         match &data {
             WhoopData::HistoryReading(r) => {
                 assert_eq!(r.unix, 1718161626000);
@@ -1258,7 +1527,7 @@ mod tests {
         // V24 packet (same DSP layout as V12, dual routing)
         let data = hex::decode("aa6400a12f1805cb6cc100f7715c67300b805454015700000000000000000000005161cda013a03dcdcc1cbbd723133ee146873f00028a46cdcc1cbbd723133ee146873f28026d029c03700257019004010c020c3000000000000001b9120000000000000a9c4cac").expect("Invalid hex data");
         let packet = WhoopPacket::from_data(data).expect("Invalid packet data");
-        let data = WhoopData::from_packet(packet).expect("Invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid packet");
         match &data {
             WhoopData::HistoryReading(r) => {
                 assert_eq!(r.unix, 1734111735000);
@@ -1274,10 +1543,36 @@ mod tests {
             _ => panic!("Expected HistoryReading"),
         }
 
+        // Gen5 historical parsing must not use the Gen4 V12/V24 selector (seq=12/24).
+        // If it did, this packet would be routed to parse_historical_packet_v12 and include sensor_data.
+        let mut gen5_historical = vec![0u8; 77];
+        gen5_historical[4..8].copy_from_slice(&1000_u32.to_le_bytes()); // unix seconds
+        gen5_historical[14] = 80; // bpm
+        gen5_historical[15] = 1; // rr_count
+        gen5_historical[16..18].copy_from_slice(&900_u16.to_le_bytes()); // rr[0]
+        let packet = WhoopPacket {
+            packet_type: PacketType::HistoricalData,
+            seq: 12, // would trigger V12 path in Gen4 parser
+            cmd: 0,
+            data: gen5_historical,
+            size: 0,
+            partial: false,
+        };
+        let data = WhoopData::from_packet_gen5(packet).expect("Invalid Gen5 historical packet");
+        match &data {
+            WhoopData::HistoryReading(r) => {
+                assert_eq!(r.unix, 1_000_000);
+                assert_eq!(r.bpm, 80);
+                assert_eq!(r.rr, vec![900]);
+                assert!(r.sensor_data.is_none());
+            }
+            _ => panic!("Expected HistoryReading"),
+        }
+
         let data = hex::decode("aa8407f72f0a29eb21d70059583568c00b805418013c0000000000000000000000e62dff00000000000000000000c0ba163c00fc4ebf00a0e8bd9a21173f0000f4c600fc4ebf00a0e8bd9a21173f40027b02e9037b020301657df27ef29ef28df28ff28bf287f2a1f299f2a3f294f297f29bf291f295f2a4f295f28bf286f294f294f29df2a0f297f28cf27df281f291f28ef297f290f290f2a0f2a5f2a6f2a1f296f287f293f28ff296f29bf297f284f286f28df286f283f294f29bf296f293f28cf290f29ef2a6f2b2f2c0f2b7f2b3f2abf2a6f29ff29ef293f294f299f29bf296f27df283f276f274f26ef260f27af279f280f298f299f27cf263f27af273f279f25df25bf258f25ff27ff27af25ff256f250f25bf24bf249f241f264f27ff268fe68fe80fe80fe83fe8ffe96fe8bfe94fea4fe97fe7cfe79fe86fe92fe86fe72fe84fe80fe98fe9dfe93fe7ffe79fe79fe7ffe71fe6efe6bfe6cfe79fe8dfe8efe8bfe81fe7ffe7afe83fe76fe59fe56fe5bfe59fe5cfe56fe4ffe49fe48fe62fe79fe76fe64fe5dfe62fe73fe7efe89fe9afea1fe9bfe95fe9afe8bfe7afe6dfe6dfe8dfe9bfe98fe96fe80fe76fe84fe85fe82fe7dfe6bfe71fe70fe90fe85fe7efe89fe83fe8afe8dfe87fe6efe63fe6ffe67fe4afe41fe49fe42fe44fe2dfe41fe2cfe49fe6b08700878089608a208a208aa08a208a0089e08ac089a0892089a08960892088f0883088f0878086b086e0866086d0862087b088b0884088e08920895089808940899089c08a108aa08a0089c0899089c0898088e0881087e0884087f08750877087f08800883088808900899089b08a108a908a908a908a9089808960894089c089d08810878086e085e085e085a084d08560856085c086d086808670878086d086e0875086a0863085e0847084d083a0828081e080c0804081d082608440853086908580860080501651a0019001600130012000e000d000b000a0008000c0009000b000f000d0008000500060009000b0009000a000b00110016001c0021002300240026002700270022001e001e001f0021002200230022002200240025002500250028002b002e0030002f002d002d00320038003c003d003b00370031002e002e00300031003200350038003b003a0034002e002d002e0030002f002a00260025002400230021001d001800140010000a00080003000100010002000100fefffcfffafff3ffedffe6ffe4ffe6ffe9fffffffdfffbfffbfffbfffcffffff01000400060009000b000c000f000f0010000f000f000d000a0008000600040003000000fdfffbfffafff9fff8fff9fff9fff9fff9fffbfffdffffff0000010001000300040004000400050005000400040003000000ffff0000fffffffffefffeffffff01000400070009000b000c000d000e000e000e000d000d000d000c000b000b000d000e000e000f000f0010001200120012001100140018001b001b001a001a001a001a001800150013000f000f000d000b000a000d00f2fff4fff6fff8fff9fff7fff7fff6fff6fff5fff4fff4fff3fff3fff2fff3fff3fff2fff0ffefffedffebffe9ffe8ffe6ffe5ffe6ffe7ffe7ffe6ffe4ffe2ffe1ffdfffdcffdaffd9ffd7ffd6ffd6ffd6ffd7ffd7ffd8ffd8ffd9ffdaffdbffdbffdbffdcffddffdfffdfffdeffdfffdfffdfffdeffdcffdaffd8ffd7ffd6ffd6ffd7ffd7ffd6ffd5ffd3ffd1ffd0ffd1ffd2ffd4ffd6ffd7ffd8ffdaffd9ffd7ffd8ffd8ffdaffd8ffd5ffd7ffdaffddffe0ffdfffdfffe0ffe3ffe8ffebffebffeffff5fffaff000100000011f300000000000000000a0000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000320400000500000100000320000000000002200000000000e6fffffffaffffff02000000fefffffff4fffffffefffffffafffffffeffffff03000000f2ffffff00000000f8fffffff5ffffff01000000f3fffffff9ffffff1000000001000000f9fffffffdfffffff1ffffffe0fffffff4fffffffffffffff1fffffff0fffffffffffffffbffffff02000000ddfffffffeffffffe8fffffffaffffff06000000faffffff03000000faffffffebffffff00000000f6fffffff6fffffffcfffffff5fffffff3ffffff08000000fdfffffff9fffffff5fffffffdfffffffafffffffcffffff02000000fdfffffffffffffffffffffff5ffffff1b0000000800000003000000feffffffeffffffff8fffffff7ffffff2700000001000000feffffff040000000200000000000000fdfffffffffffffff1ffffff0100000006000000fbfffffffaffffff01000000f9ffffffffffffff070000000a000000fdffffff030000000b000000fffffffffcffffffffffffff0a000000fcffffff01000000000000000200000001000000f7fffffffbffffff0a000000fefffffffefffffff9fffffff8ffffff31280100a57c006f").expect("Invalid bytes");
         let packet = WhoopPacket::from_data(data).expect("Invalid packet data");
         dbg!(packet.size, packet.partial);
-        let data = WhoopData::from_packet(packet).expect("Invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid packet");
 
         assert_eq!(
             data,
@@ -2096,13 +2391,13 @@ mod tests {
             .expect("Invalid hex data");
 
         let packet = WhoopPacket::from_data(data).expect("Invalid packet data");
-        let data = WhoopData::from_packet(packet).expect("Invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid packet");
 
         assert_eq!(
             data,
             WhoopData::HistoryMetadata {
                 unix: 1735831144,
-                data: 46791,
+                end_data: [0xc7, 0xb6, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00],
                 cmd: MetadataType::HistoryEnd
             }
         );
@@ -2119,7 +2414,7 @@ mod tests {
             partial: false
         };
 
-        let data = WhoopData::from_packet(packet).expect("Invalid data");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid data");
         assert_eq!(
             data,
             WhoopData::ConsoleLog {
@@ -2140,7 +2435,7 @@ mod tests {
             partial: false,
         };
 
-        let data = WhoopData::from_packet(packet).expect("Invalid data");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("Invalid data");
 
         assert_eq!(data, WhoopData::RunAlarm { unix: 1733561527 });
     }
@@ -2150,34 +2445,110 @@ mod tests {
         let bytes = hex::decode("aa1c00ab311002a9fc8367205337000000257e00000a0000000000007ac020f8")
             .expect("invalid bytes");
         let packet = WhoopPacket::from_data(bytes).expect("Invalid packet");
-        let data = WhoopData::from_packet(packet).expect("invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("invalid packet");
         assert_eq!(
             data,
             WhoopData::HistoryMetadata {
                 unix: 1736703145,
-                data: 32293,
+                end_data: [0x25, 0x7e, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00],
                 cmd: MetadataType::HistoryEnd
             }
         );
 
         let bytes = hex::decode("aa2c005231010146fb8367404c0600000010000000020000002900000010000000030000000000000008020055fd251d").expect("invalid bytes");
         let packet = WhoopPacket::from_data(bytes).expect("Invalid packet");
-        let data = WhoopData::from_packet(packet).expect("invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("invalid packet");
         assert_eq!(
             data,
             WhoopData::HistoryMetadata {
                 unix: 1736702790,
-                data: 16,
+                end_data: [0x10, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00],
                 cmd: MetadataType::HistoryStart,
             }
         );
     }
 
     #[test]
+    fn parse_metadata_gen5() {
+        // TODO(whoop5): expand with more metadata samples from additional firmware versions.
+        let bytes =
+            hex::decode("aa011c00010023d13145024a6eaa6933533b000000ee18000000000000000000bdec1f16")
+                .expect("invalid bytes");
+        let packet = WhoopPacket::from_data_maverick(bytes).expect("invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen5).expect("invalid packet");
+        assert_eq!(
+            data,
+            WhoopData::HistoryMetadata {
+                unix: 1772777034,
+                end_data: [0xee, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+                cmd: MetadataType::HistoryEnd
+            }
+        );
+    }
+
+    #[test]
+    fn parse_command_response_get_data_range_gen5() {
+        let mut body = vec![0u8; 25];
+        body[9..13].copy_from_slice(&100u32.to_le_bytes());
+        body[13..17].copy_from_slice(&80u32.to_le_bytes());
+        body[21..25].copy_from_slice(&1000u32.to_le_bytes());
+
+        let mut data = vec![7, 1]; // origin_seq, result
+        data.extend_from_slice(&body);
+
+        let packet = WhoopPacket::new(
+            PacketType::CommandResponse,
+            0,
+            CommandNumber::GetDataRange.as_u8(),
+            data,
+        );
+        let parsed = WhoopData::from_packet(packet, WhoopGeneration::Gen5).expect("invalid packet");
+
+        match parsed {
+            WhoopData::CommandResponse(resp) => {
+                assert_eq!(resp.origin_seq, 7);
+                assert_eq!(resp.result, 1);
+                assert_eq!(resp.result_name(), "Success");
+                assert_eq!(
+                    resp.get_data_range_response(),
+                    Some(GetDataRangeResponse::Range(crate::DataRangeInfo {
+                        start: 100,
+                        end: 80,
+                        rollover: 1000,
+                        distance: 20
+                    }))
+                );
+            }
+            other => panic!("expected command response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_command_response_get_data_range_short_payload() {
+        let packet = WhoopPacket::new(
+            PacketType::CommandResponse,
+            0,
+            CommandNumber::GetDataRange.as_u8(),
+            vec![1, 1, 0xaa, 0xbb, 0xcc],
+        );
+        let parsed = WhoopData::from_packet(packet, WhoopGeneration::Gen5).expect("invalid packet");
+
+        match parsed {
+            WhoopData::CommandResponse(resp) => {
+                assert_eq!(
+                    resp.get_data_range_response(),
+                    Some(GetDataRangeResponse::ShortPayload)
+                );
+            }
+            other => panic!("expected command response, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_version_response() {
         let response = hex::decode("aa50000c2477070a01012900000011000000020000000000000011000000020000000200000000000000030000000400000000000000000000000300000006000000000000000000000008050100000074b95569").expect("invalid data");
         let packet = WhoopPacket::from_data(response).expect("invalid packet");
-        let data = WhoopData::from_packet(packet).expect("invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen4).expect("invalid packet");
         assert_eq!(
             data,
             WhoopData::VersionInfo {
@@ -2185,5 +2556,87 @@ mod tests {
                 boylston: String::from("17.2.2.0")
             }
         )
+    }
+
+    #[test]
+    fn parse_history_gen5() {
+        let response = hex::decode("aa01740001003fb12f128067a700008e3caa693353003d01ae030000000000000000eb418f3d3f40ff00badd3b71ad283e5228213fe152473f8502710000000000000000003e0141011f0d5009010c020c20000000000000000000000000000000000000000000010100cfeb2f300000006ef4a8c0000000c57ee4d0").expect("invalid data");
+        let packet = WhoopPacket::from_data_maverick(response).expect("invalid packet");
+        let data = WhoopData::from_packet(packet, WhoopGeneration::Gen5).expect("invalid packet");
+        dbg!(data);
+    }
+
+    /// Four consecutive 1-second history readings from a WHOOP 5.0 device (version K=18).
+    /// BPM = 60 for all. RR is absent for packets 0/1 (raw value out of physiological range),
+    /// 861 ms for packet 2, and 916 ms for packet 3.
+    ///
+    /// Packets 1-3 have invalid CRC32 (capture artifacts), so they are parsed by constructing
+    /// WhoopPacket directly from the payload body. Packet 0 also exercises the full
+    /// from_data_maverick -> from_packet pipeline since its CRC32 is valid.
+    #[test]
+    fn parse_history_gen5_v18_bpm() {
+        let hexes = [
+            "aa01740001003fb12f12820f000000c16ca969f568003c0000000000000000001170fd0002420000b40098403cec8d693f4889c6be3dcae3bd000064000000000000000000ae01a001770ff057010c020c000000000000000000000000000000000000000000008001000000808000000000000000000000fc3f42e0",
+            "aa01740001003fb12f12820f000000c26ca969f568003c000000000000000000000071000002420000b3e0f00c3d1f69613fd7a3e1be8fc2d73b000064000000000000000000ae01a001770ff007010c020c01000000000000000000000000000000000000000000800100000080800000000000000000000046af0dbb",
+            "aa01740001003fb12f12820f000000c36ca969f568003c00000000000000000000715d0302420000b210b30c3eae07303fe18adfbe48119d3e000064000000000000000000ae01a001770ff007010c020c010000000000000000000000000000000000000000008001000000808000000000000000000000752dbc3e",
+            "aa01740001003fb12f12820f000000c46ca969f568003c0000000000000000000071940303420000ba0c1db93e1496ae3e3d8a74bf66a6643d000064000000000000000000ae01a001730ff007010c020c010000000000000000000000000000000000000000008001000000808000000000000000000000edbd681c",
+        ];
+        let expected_unix = [
+            1772711105000u64,
+            1772711106000,
+            1772711107000,
+            1772711108000,
+        ];
+        let expected_rr: [&[u16]; 4] = [&[], &[], &[861], &[916]];
+
+        for (i, (hex, (&unix, rr))) in hexes
+            .iter()
+            .zip(expected_unix.iter().zip(expected_rr.iter()))
+            .enumerate()
+        {
+            let raw = hex::decode(hex).expect("invalid hex");
+            // Skip 8-byte Maverick header and 4-byte trailing CRC32.
+            // Body layout: [packet_type][seq=K][cmd][data...]
+            let body = &raw[8..raw.len() - 4];
+            let packet_type = PacketType::from_u8(body[0]).expect("invalid packet type");
+            let seq = body[1];
+            let data = body[3..].to_vec();
+            assert_eq!(seq, 18, "packet {i}: expected K=18");
+            let packet = WhoopPacket::new(packet_type, seq, body[2], data);
+            let data = WhoopData::from_packet(packet, WhoopGeneration::Gen5).expect("parse failed");
+
+            match data {
+                WhoopData::HistoryReading(r) => {
+                    assert_eq!(r.bpm, 60, "packet {i}: bpm mismatch");
+                    assert_eq!(r.unix, unix, "packet {i}: unix mismatch");
+                    assert_eq!(r.rr.as_slice(), *rr, "packet {i}: rr mismatch");
+                    // Packet 1 is a 125-byte corrupt capture (extra byte shifts all
+                    // offsets after data[21]), so skip sensor_data assertions for it.
+                    if i != 1 {
+                        let sd = r
+                            .sensor_data
+                            .as_ref()
+                            .expect("packet {i}: expected sensor_data");
+                        assert_eq!(sd.spo2_pct, Some(100), "packet {i}: SpO2 mismatch");
+                        let [gx, gy, gz] = sd.accel_gravity;
+                        let mag = (gx * gx + gy * gy + gz * gz).sqrt();
+                        assert!(
+                            (0.7..=1.3).contains(&mag),
+                            "packet {i}: gravity magnitude {mag:.3} out of range"
+                        );
+                    }
+                }
+                other => panic!("packet {i}: expected HistoryReading, got {other:?}"),
+            }
+        }
+
+        // Also verify the full framing pipeline for packet 0 (the only one with valid CRC32).
+        let raw0 = hex::decode(hexes[0]).unwrap();
+        let packet0 = WhoopPacket::from_data_maverick(raw0).expect("packet 0 framing failed");
+        assert_eq!(packet0.seq, 18);
+        assert!(matches!(
+            WhoopData::from_packet(packet0, WhoopGeneration::Gen5).unwrap(),
+            WhoopData::HistoryReading(_)
+        ));
     }
 }

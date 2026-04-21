@@ -20,7 +20,10 @@ pub struct SleepCycle {
 }
 
 impl SleepCycle {
-    pub fn from_event(event: ActivityPeriod, history: &[ParsedHistoryReading]) -> Result<SleepCycle, WhoopError> {
+    pub fn from_event(
+        event: ActivityPeriod,
+        history: &[ParsedHistoryReading],
+    ) -> Result<SleepCycle, WhoopError> {
         let (heart_rate, rr): (Vec<u64>, Vec<Vec<_>>) = history
             .iter()
             .filter(|h| h.time >= event.start && h.time <= event.end)
@@ -30,15 +33,19 @@ impl SleepCycle {
         let rr = Self::clean_rr(rr);
         let rolling_hrv = Self::rolling_hrv(rr);
 
-        let min_hrv = u16::try_from(rolling_hrv.iter().min().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
-        let max_hrv = u16::try_from(rolling_hrv.iter().max().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
+        let min_hrv = u16::try_from(rolling_hrv.iter().min().copied().unwrap_or_default())
+            .map_err(|_| WhoopError::Overflow)?;
+        let max_hrv = u16::try_from(rolling_hrv.iter().max().copied().unwrap_or_default())
+            .map_err(|_| WhoopError::Overflow)?;
 
         let hrv_count = u64::try_from(rolling_hrv.len()).map_err(|_| WhoopError::Overflow)?;
         let hrv = rolling_hrv.into_iter().sum::<u64>() / hrv_count.max(1);
         let avg_hrv = u16::try_from(hrv).map_err(|_| WhoopError::Overflow)?;
 
-        let min_bpm = u8::try_from(heart_rate.iter().min().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
-        let max_bpm = u8::try_from(heart_rate.iter().max().copied().unwrap_or_default()).map_err(|_| WhoopError::Overflow)?;
+        let min_bpm = u8::try_from(heart_rate.iter().min().copied().unwrap_or_default())
+            .map_err(|_| WhoopError::Overflow)?;
+        let max_bpm = u8::try_from(heart_rate.iter().max().copied().unwrap_or_default())
+            .map_err(|_| WhoopError::Overflow)?;
 
         let heart_rate_count = u64::try_from(heart_rate.len()).map_err(|_| WhoopError::Overflow)?;
         let bpm = heart_rate.into_iter().sum::<u64>() / heart_rate_count.max(1);
@@ -171,7 +178,9 @@ mod tests {
     #[test]
     fn calculate_rmssd_with_variation() {
         // Alternating 800, 900 -> diff^2 = 10000 each -> mean = 10000 -> sqrt = 100
-        let window: Vec<u64> = (0..10).map(|i| if i % 2 == 0 { 800 } else { 900 }).collect();
+        let window: Vec<u64> = (0..10)
+            .map(|i| if i % 2 == 0 { 800 } else { 900 })
+            .collect();
         assert_eq!(SleepCycle::calculate_rmssd(&window), Some(100));
     }
 

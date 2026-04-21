@@ -96,9 +96,7 @@ impl WhoopApiClient {
     ) -> anyhow::Result<String> {
         let resp = self
             .client
-            .post(format!(
-                "{API_BASE}/firmware-service/v4/firmware/version"
-            ))
+            .post(format!("{API_BASE}/firmware-service/v4/firmware/version"))
             .query(&[("deviceName", device_name)])
             .header("Authorization", format!("Bearer {}", self.token))
             .header("X-WHOOP-Device-Platform", "ANDROID")

@@ -85,8 +85,7 @@ impl StrainCalculator {
     ) -> f64 {
         hr.iter()
             .map(|r| {
-                sample_duration_min
-                    * f64::from(Self::zone_weight(r.bpm, resting_hr, hr_reserve))
+                sample_duration_min * f64::from(Self::zone_weight(r.bpm, resting_hr, hr_reserve))
             })
             .sum()
     }
@@ -220,21 +219,54 @@ mod tests {
         let hr_reserve: f64 = 150.0;
 
         // Below zone 1: bpm < 125 (< 50% HRR)
-        assert_eq!(StrainCalculator::zone_weight(120, resting_hr, hr_reserve), 0);
+        assert_eq!(
+            StrainCalculator::zone_weight(120, resting_hr, hr_reserve),
+            0
+        );
         // Zone 1: 50-60% HRR -> bpm 125-139
-        assert_eq!(StrainCalculator::zone_weight(125, resting_hr, hr_reserve), 1);
-        assert_eq!(StrainCalculator::zone_weight(139, resting_hr, hr_reserve), 1);
+        assert_eq!(
+            StrainCalculator::zone_weight(125, resting_hr, hr_reserve),
+            1
+        );
+        assert_eq!(
+            StrainCalculator::zone_weight(139, resting_hr, hr_reserve),
+            1
+        );
         // Zone 2: 60-70% HRR -> bpm 140-154
-        assert_eq!(StrainCalculator::zone_weight(140, resting_hr, hr_reserve), 2);
-        assert_eq!(StrainCalculator::zone_weight(154, resting_hr, hr_reserve), 2);
+        assert_eq!(
+            StrainCalculator::zone_weight(140, resting_hr, hr_reserve),
+            2
+        );
+        assert_eq!(
+            StrainCalculator::zone_weight(154, resting_hr, hr_reserve),
+            2
+        );
         // Zone 3: 70-80% HRR -> bpm 155-169
-        assert_eq!(StrainCalculator::zone_weight(155, resting_hr, hr_reserve), 3);
-        assert_eq!(StrainCalculator::zone_weight(169, resting_hr, hr_reserve), 3);
+        assert_eq!(
+            StrainCalculator::zone_weight(155, resting_hr, hr_reserve),
+            3
+        );
+        assert_eq!(
+            StrainCalculator::zone_weight(169, resting_hr, hr_reserve),
+            3
+        );
         // Zone 4: 80-90% HRR -> bpm 170-184
-        assert_eq!(StrainCalculator::zone_weight(170, resting_hr, hr_reserve), 4);
-        assert_eq!(StrainCalculator::zone_weight(184, resting_hr, hr_reserve), 4);
+        assert_eq!(
+            StrainCalculator::zone_weight(170, resting_hr, hr_reserve),
+            4
+        );
+        assert_eq!(
+            StrainCalculator::zone_weight(184, resting_hr, hr_reserve),
+            4
+        );
         // Zone 5: 90-100% HRR -> bpm 185-200
-        assert_eq!(StrainCalculator::zone_weight(185, resting_hr, hr_reserve), 5);
-        assert_eq!(StrainCalculator::zone_weight(200, resting_hr, hr_reserve), 5);
+        assert_eq!(
+            StrainCalculator::zone_weight(185, resting_hr, hr_reserve),
+            5
+        );
+        assert_eq!(
+            StrainCalculator::zone_weight(200, resting_hr, hr_reserve),
+            5
+        );
     }
 }

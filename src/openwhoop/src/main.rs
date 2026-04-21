@@ -2,7 +2,8 @@
 extern crate log;
 
 use std::{
-    io,
+    env, fs, io,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{
         Arc,
@@ -11,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use btleplug::{
     api::{BDAddr, Central, Manager as _, Peripheral as _, ScanFilter},
     platform::{Adapter, Manager, Peripheral},
@@ -19,17 +20,22 @@ use btleplug::{
 use chrono::{DateTime, Local, NaiveDateTime, NaiveTime, TimeDelta, Utc};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{Shell, generate};
-use openwhoop_entities::packets;
 use dotenv::dotenv;
+use openwhoop::api;
 use openwhoop::{
-    OpenWhoop, WhoopDevice,
+    HistorySyncConfig, OpenWhoop, WhoopDevice,
     algo::{ExerciseMetrics, SleepConsistencyAnalyzer},
     db::DatabaseHandler,
     types::activities::{ActivityType, SearchActivityPeriods},
 };
+use openwhoop_codec::{
+    WhoopPacket,
+    constants::{ALL_WHOOP_SERVICES, WhoopGeneration},
+};
+use openwhoop_entities::packets;
 use tokio::time::sleep;
-use openwhoop::api;
-use openwhoop_codec::{WhoopPacket, constants::WHOOP_SERVICE};
+
+const OPENWHOOP_CONFIG_DIR: &str = ".openwhoop";
 
 #[cfg(target_os = "linux")]
 pub type DeviceId = BDAddr;
@@ -42,7 +48,7 @@ pub struct OpenWhoopCli {
     #[arg(env, long)]
     pub debug_packets: bool,
     #[arg(env, long)]
-    pub database_url: String,
+    pub database_url: Option<String>,
     #[cfg(target_os = "linux")]
     #[arg(env, long)]
     pub ble_interface: Option<String>,
@@ -57,11 +63,33 @@ pub enum OpenWhoopCommand {
     ///
     Scan,
     ///
+    /// Set the default Whoop device in ~/.openwhoop/.env
+    ///
+    SetWhoop { whoop: DeviceId },
+    ///
+    /// Set the default remote database URL in ~/.openwhoop/.env
+    ///
+    SetRemote { remote: String },
+    ///
     /// Download history data from whoop devices
     ///
     DownloadHistory {
         #[arg(long, env)]
         whoop: DeviceId,
+        #[arg(
+            long,
+            env = "OPENWHOOP_HISTORY_TIMEOUT_SECS",
+            default_value_t = 0,
+            help = "Overall Gen5 history timeout in seconds; 0 disables the wall-clock cap"
+        )]
+        history_timeout_secs: u64,
+        #[arg(
+            long,
+            env = "OPENWHOOP_HISTORY_IDLE_TIMEOUT_SECS",
+            default_value_t = 20,
+            help = "Fail the transfer if no Gen5 history packets arrive for this many seconds"
+        )]
+        history_idle_timeout_secs: u64,
     },
     ///
     /// Reruns the packet processing on stored packets
@@ -99,6 +127,20 @@ pub enum OpenWhoopCommand {
         #[arg(long, env)]
         whoop: DeviceId,
         alarm_time: AlarmTime,
+    },
+    ///
+    /// Stream realtime heart rate
+    ///
+    StreamHr {
+        #[arg(long, env)]
+        whoop: DeviceId,
+    },
+    ///
+    /// Ring the alarm immediately
+    ///
+    RingAlarm {
+        #[arg(long, env)]
+        whoop: DeviceId,
     },
     ///
     /// Get current alarm setting from device
@@ -155,12 +197,25 @@ pub enum OpenWhoopCommand {
         email: String,
         #[arg(long, env = "WHOOP_PASSWORD")]
         password: String,
+        /// Device family for firmware lookup.
+        /// Supported: HARVARD (Whoop 4), PUFFIN, MAVERICK/WHOOP5 (Whoop 5.0).
         #[arg(long, default_value = "HARVARD")]
         device_name: String,
+        /// MAXIM target version (HARVARD/PUFFIN).
         #[arg(long, default_value = "41.16.5.0")]
         maxim: String,
+        /// NORDIC target version (HARVARD/PUFFIN).
         #[arg(long, default_value = "17.2.2.0")]
         nordic: String,
+        /// RUGGLES target version (PUFFIN only).
+        #[arg(long, default_value = "1.0.0.0")]
+        ruggles: String,
+        /// PEARL target version (PUFFIN only).
+        #[arg(long, default_value = "1.0.0.0")]
+        pearl: String,
+        /// MAVERICK target version (WHOOP 5.0).
+        #[arg(long, default_value = "50.36.1.0")]
+        maverick: String,
         #[arg(long, default_value = "./firmware")]
         output_dir: String,
     },
@@ -168,9 +223,7 @@ pub enum OpenWhoopCommand {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if let Err(error) = dotenv() {
-        println!("{}", error);
-    }
+    load_cli_env();
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .filter_module("sqlx::query", log::LevelFilter::Off)
@@ -182,27 +235,177 @@ async fn main() -> anyhow::Result<()> {
     OpenWhoopCli::parse().run().await
 }
 
+fn load_cli_env() {
+    if cfg!(debug_assertions) {
+        if let Err(error) = dotenv() {
+            println!("{}", error);
+        }
+        return;
+    }
+
+    let Some(env_path) = openwhoop_env_path() else {
+        return;
+    };
+    if env_path.is_file() {
+        if let Err(error) = dotenv::from_path(&env_path) {
+            println!("{}", error);
+        }
+    }
+}
+
+fn openwhoop_config_dir_from(home: impl Into<PathBuf>) -> PathBuf {
+    home.into().join(OPENWHOOP_CONFIG_DIR)
+}
+
+fn openwhoop_config_dir() -> Option<PathBuf> {
+    env::var_os("HOME").map(openwhoop_config_dir_from)
+}
+
+fn openwhoop_env_path_from(home: impl Into<PathBuf>) -> PathBuf {
+    openwhoop_config_dir_from(home).join(".env")
+}
+
+fn openwhoop_env_path() -> Option<PathBuf> {
+    env::var_os("HOME").map(openwhoop_env_path_from)
+}
+
+fn format_dotenv_value(value: &str) -> String {
+    if value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':'))
+    {
+        value.to_string()
+    } else {
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    }
+}
+
+fn upsert_dotenv_value(contents: &str, key: &str, value: &str) -> String {
+    let assignment = format!("{key}={}", format_dotenv_value(value));
+    let mut replaced = false;
+    let mut lines = Vec::new();
+
+    for line in contents.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(&format!("{key}=")) || trimmed.starts_with(&format!("export {key}="))
+        {
+            if !replaced {
+                lines.push(assignment.clone());
+                replaced = true;
+            }
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+
+    if !replaced {
+        lines.push(assignment);
+    }
+
+    let mut updated = lines.join("\n");
+    updated.push('\n');
+    updated
+}
+
+fn write_openwhoop_env_value(env_path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+    if let Some(parent) = env_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let contents = match fs::read_to_string(env_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", env_path.display()));
+        }
+    };
+
+    fs::write(env_path, upsert_dotenv_value(&contents, key, value))
+        .with_context(|| format!("failed to write {}", env_path.display()))
+}
+
+fn set_default_whoop(whoop: &DeviceId) -> anyhow::Result<PathBuf> {
+    let Some(env_path) = openwhoop_env_path() else {
+        anyhow::bail!("HOME is unavailable");
+    };
+
+    write_openwhoop_env_value(&env_path, "WHOOP", &whoop.to_string())?;
+    Ok(env_path)
+}
+
+fn set_default_remote(remote: &str) -> anyhow::Result<PathBuf> {
+    let Some(env_path) = openwhoop_env_path() else {
+        anyhow::bail!("HOME is unavailable");
+    };
+
+    write_openwhoop_env_value(&env_path, "REMOTE", remote)?;
+    Ok(env_path)
+}
+
+fn default_sqlite_database_url(config_dir: &Path) -> String {
+    format!(
+        "sqlite://{}?mode=rwc",
+        config_dir.join("db.sqlite").display()
+    )
+}
+
+fn default_database_url() -> anyhow::Result<Option<String>> {
+    let Some(config_dir) = openwhoop_config_dir() else {
+        return Ok(None);
+    };
+
+    fs::create_dir_all(&config_dir)
+        .with_context(|| format!("failed to create {}", config_dir.display()))?;
+
+    Ok(Some(default_sqlite_database_url(&config_dir)))
+}
+
+fn resolve_database_url(database_url: Option<String>) -> anyhow::Result<String> {
+    if let Some(database_url) = database_url {
+        return Ok(database_url);
+    }
+
+    if cfg!(debug_assertions) {
+        anyhow::bail!("DATABASE_URL is not set");
+    }
+
+    default_database_url()?
+        .ok_or_else(|| anyhow!("DATABASE_URL is not set and HOME is unavailable"))
+}
+
 async fn download_firmware(
     email: &str,
     password: &str,
     device_name: &str,
     maxim: &str,
     nordic: &str,
+    ruggles: &str,
+    pearl: &str,
+    maverick: &str,
     output_dir: &str,
 ) -> anyhow::Result<()> {
     info!("authenticating...");
     let client = api::WhoopApiClient::sign_in(email, password).await?;
 
-    let chip_names = match device_name {
-        "HARVARD" => vec!["MAXIM", "NORDIC"],
-        "PUFFIN" => vec!["MAXIM", "NORDIC", "RUGGLES", "PEARL"],
+    let normalized_device = device_name.trim().to_ascii_uppercase();
+    let (api_device_name, chip_names): (&str, Vec<&str>) = match normalized_device.as_str() {
+        "HARVARD" => ("HARVARD", vec!["MAXIM", "NORDIC"]),
+        "PUFFIN" => ("PUFFIN", vec!["MAXIM", "NORDIC", "RUGGLES", "PEARL"]),
+        "MAVERICK" | "MAVERIC" | "WHOOP5" | "WHOOP_5" | "WHOOP 5" | "WHOOP5.0" | "WHOOP_5.0"
+        | "WHOOP 5.0" | "WHOOP-5" | "WHOOP-5.0" => ("MAVERICK", vec!["AMBIQ"]),
         other => anyhow::bail!("unknown device family: {other}"),
     };
 
-    let target_versions: std::collections::HashMap<&str, &str> =
-        [("MAXIM", maxim), ("NORDIC", nordic)]
-            .into_iter()
-            .collect();
+    let target_versions: std::collections::HashMap<&str, &str> = [
+        ("MAXIM", maxim),
+        ("NORDIC", nordic),
+        ("RUGGLES", ruggles),
+        ("PEARL", pearl),
+        ("AMBIQ", maverick),
+    ]
+    .into_iter()
+    .collect();
 
     let current: Vec<api::ChipFirmware> = chip_names
         .iter()
@@ -220,14 +423,14 @@ async fn download_firmware(
         })
         .collect();
 
-    info!("device: {device_name}");
+    info!("device: {api_device_name}");
     for uv in &upgrade {
         info!("  target {}: {}", uv.chip_name, uv.version);
     }
 
     info!("downloading firmware...");
     let fw_b64 = client
-        .download_firmware(device_name, current, upgrade)
+        .download_firmware(api_device_name, current, upgrade)
         .await?;
 
     api::decode_and_extract(&fw_b64, std::path::Path::new(output_dir))?;
@@ -237,10 +440,10 @@ async fn download_firmware(
 async fn scan_command(
     adapter: &Adapter,
     device_id: Option<DeviceId>,
-) -> anyhow::Result<Peripheral> {
+) -> anyhow::Result<(Peripheral, WhoopGeneration)> {
     adapter
         .start_scan(ScanFilter {
-            services: vec![WHOOP_SERVICE],
+            services: ALL_WHOOP_SERVICES.to_vec(),
         })
         .await?;
 
@@ -252,21 +455,28 @@ async fn scan_command(
                 continue;
             };
 
-            if !properties.services.contains(&WHOOP_SERVICE) {
+            let Some(generation) = ALL_WHOOP_SERVICES.iter().find_map(|svc| {
+                if properties.services.contains(svc) {
+                    WhoopGeneration::from_service(*svc)
+                } else {
+                    None
+                }
+            }) else {
                 continue;
-            }
+            };
 
             let Some(device_id) = device_id.as_ref() else {
                 println!("Address: {}", properties.address);
                 println!("Name: {:?}", properties.local_name);
                 println!("RSSI: {:?}", properties.rssi);
+                println!("Generation: {:?}", generation);
                 println!();
                 continue;
             };
 
             #[cfg(target_os = "linux")]
             if properties.address == *device_id {
-                return Ok(peripheral);
+                return Ok((peripheral, generation));
             }
 
             #[cfg(target_os = "macos")]
@@ -275,7 +485,7 @@ async fn scan_command(
                     continue;
                 };
                 if sanitize_name(&name).starts_with(device_id) {
-                    return Ok(peripheral);
+                    return Ok((peripheral, generation));
                 }
             }
         }
@@ -375,29 +585,67 @@ pub fn sanitize_name(name: &str) -> String {
 
 impl OpenWhoopCli {
     async fn run(self) -> anyhow::Result<()> {
+        if let OpenWhoopCommand::SetWhoop { whoop } = &self.subcommand {
+            let env_path = set_default_whoop(whoop)?;
+            println!("Set WHOOP={} in {}", whoop, env_path.display());
+            return Ok(());
+        }
+
+        if let OpenWhoopCommand::SetRemote { remote } = &self.subcommand {
+            let env_path = set_default_remote(remote)?;
+            println!("Set REMOTE={} in {}", remote, env_path.display());
+            return Ok(());
+        }
+
         if let OpenWhoopCommand::DownloadFirmware {
             email,
             password,
             device_name,
             maxim,
             nordic,
+            ruggles,
+            pearl,
+            maverick,
             output_dir,
         } = &self.subcommand
         {
-            return download_firmware(email, password, device_name, maxim, nordic, output_dir).await;
+            return download_firmware(
+                email,
+                password,
+                device_name,
+                maxim,
+                nordic,
+                ruggles,
+                pearl,
+                maverick,
+                output_dir,
+            )
+            .await;
         }
 
+        let database_url = resolve_database_url(self.database_url.clone())?;
         let adapter = self.create_ble_adapter().await?;
-        let db_handler = DatabaseHandler::new(self.database_url).await;
+        let db_handler = DatabaseHandler::new(database_url).await;
 
         match self.subcommand {
             OpenWhoopCommand::Scan => {
                 scan_command(&adapter, None).await?;
             }
-            OpenWhoopCommand::DownloadHistory { whoop } => {
-                let peripheral = scan_command(&adapter, Some(whoop)).await?;
-                let mut whoop =
-                    WhoopDevice::new(peripheral, adapter, db_handler, self.debug_packets);
+            OpenWhoopCommand::SetWhoop { .. } => unreachable!(),
+            OpenWhoopCommand::SetRemote { .. } => unreachable!(),
+            OpenWhoopCommand::DownloadHistory {
+                whoop,
+                history_timeout_secs,
+                history_idle_timeout_secs,
+            } => {
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop = WhoopDevice::new(
+                    peripheral,
+                    adapter,
+                    db_handler,
+                    self.debug_packets,
+                    generation,
+                );
 
                 let should_exit = Arc::new(AtomicBool::new(false));
 
@@ -409,28 +657,34 @@ impl OpenWhoopCli {
 
                 whoop.connect().await?;
                 whoop.initialize().await?;
-
-                let result = whoop.sync_history(should_exit).await;
+                whoop
+                    .sync_history(
+                        should_exit,
+                        HistorySyncConfig::from_secs(
+                            history_timeout_secs,
+                            history_idle_timeout_secs,
+                        ),
+                    )
+                    .await?;
 
                 info!("Exiting...");
-                if let Err(e) = result {
-                    error!("{}", e);
-                }
 
-                loop {
-                    if let Ok(true) = whoop.is_connected().await {
-                        whoop
-                            .send_command(WhoopPacket::exit_high_freq_sync())
-                            .await?;
-                        break;
-                    } else {
-                        whoop.connect().await?;
-                        sleep(Duration::from_secs(1)).await;
+                if matches!(generation, WhoopGeneration::Gen4) {
+                    loop {
+                        if let Ok(true) = whoop.is_connected().await {
+                            whoop
+                                .send_command(WhoopPacket::exit_high_freq_sync())
+                                .await?;
+                            break;
+                        } else {
+                            whoop.connect().await?;
+                            sleep(Duration::from_secs(1)).await;
+                        }
                     }
                 }
             }
             OpenWhoopCommand::ReRun => {
-                let mut whoop = OpenWhoop::new(db_handler.clone());
+                let mut whoop = OpenWhoop::new(db_handler.clone(), WhoopGeneration::Gen4);
                 let mut id = 0;
                 loop {
                     let packets = db_handler.get_packets(id).await?;
@@ -447,12 +701,12 @@ impl OpenWhoopCli {
                 }
             }
             OpenWhoopCommand::DetectEvents => {
-                let whoop = OpenWhoop::new(db_handler);
+                let whoop = OpenWhoop::new(db_handler, WhoopGeneration::Placeholder);
                 whoop.detect_sleeps().await?;
                 whoop.detect_events().await?;
             }
             OpenWhoopCommand::SleepStats => {
-                let whoop = OpenWhoop::new(db_handler);
+                let whoop = OpenWhoop::new(db_handler, WhoopGeneration::Placeholder);
                 let sleep_records = whoop.database.get_sleep_cycles(None).await?;
 
                 if sleep_records.is_empty() {
@@ -476,7 +730,7 @@ impl OpenWhoopCli {
                 println!("\nWeek: \n{}", metrics);
             }
             OpenWhoopCommand::ExerciseStats => {
-                let whoop = OpenWhoop::new(db_handler);
+                let whoop = OpenWhoop::new(db_handler, WhoopGeneration::Placeholder);
                 let exercises = whoop
                     .database
                     .search_activities(
@@ -504,21 +758,26 @@ impl OpenWhoopCli {
                 println!("Last week: \n{}", last_week);
             }
             OpenWhoopCommand::CalculateStress => {
-                let whoop = OpenWhoop::new(db_handler);
+                let whoop = OpenWhoop::new(db_handler, WhoopGeneration::Placeholder);
                 whoop.calculate_stress().await?;
             }
             OpenWhoopCommand::CalculateSpo2 => {
-                let whoop = OpenWhoop::new(db_handler);
+                let whoop = OpenWhoop::new(db_handler, WhoopGeneration::Placeholder);
                 whoop.calculate_spo2().await?;
             }
             OpenWhoopCommand::CalculateSkinTemp => {
-                let whoop = OpenWhoop::new(db_handler);
+                let whoop = OpenWhoop::new(db_handler, WhoopGeneration::Placeholder);
                 whoop.calculate_skin_temp().await?;
             }
             OpenWhoopCommand::SetAlarm { whoop, alarm_time } => {
-                let peripheral = scan_command(&adapter, Some(whoop)).await?;
-                let mut whoop =
-                    WhoopDevice::new(peripheral, adapter, db_handler, self.debug_packets);
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop = WhoopDevice::new(
+                    peripheral,
+                    adapter,
+                    db_handler,
+                    self.debug_packets,
+                    generation,
+                );
                 whoop.connect().await?;
 
                 let time = alarm_time.unix();
@@ -533,15 +792,46 @@ impl OpenWhoopCli {
                     return Ok(());
                 }
 
-                let packet = WhoopPacket::alarm_time(u32::try_from(time.timestamp())?);
+                let packet = WhoopPacket::alarm_time(u32::try_from(time.timestamp())?, generation);
                 whoop.send_command(packet).await?;
                 let time = time.with_timezone(&Local);
 
                 println!("Alarm time set for: {}", time.format("%Y-%m-%d %H:%M:%S"));
             }
+            OpenWhoopCommand::StreamHr { whoop } => {
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop = WhoopDevice::new(
+                    peripheral,
+                    adapter,
+                    db_handler,
+                    self.debug_packets,
+                    generation,
+                );
+                let should_exit = Arc::new(AtomicBool::new(false));
+                let se = should_exit.clone();
+                ctrlc::set_handler(move || {
+                    se.store(true, Ordering::SeqCst);
+                })?;
+                whoop.connect().await?;
+                whoop.stream_hr(should_exit).await?;
+            }
+            OpenWhoopCommand::RingAlarm { whoop } => {
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop = WhoopDevice::new(
+                    peripheral,
+                    adapter,
+                    db_handler,
+                    self.debug_packets,
+                    generation,
+                );
+                whoop.connect().await?;
+                whoop.ring_alarm().await?;
+                println!("Alarm triggered.");
+            }
             OpenWhoopCommand::GetAlarm { whoop } => {
-                let peripheral = scan_command(&adapter, Some(whoop)).await?;
-                let mut whoop = WhoopDevice::new(peripheral, adapter, db_handler, false);
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop =
+                    WhoopDevice::new(peripheral, adapter, db_handler, false, generation);
                 whoop.connect().await?;
                 let data = whoop.get_alarm().await?;
                 if let openwhoop_codec::WhoopData::AlarmInfo { enabled, unix } = data {
@@ -584,29 +874,42 @@ impl OpenWhoopCli {
                 }
             }
             OpenWhoopCommand::Restart { whoop } => {
-                let peripheral = scan_command(&adapter, Some(whoop)).await?;
-                let mut whoop =
-                    WhoopDevice::new(peripheral, adapter, db_handler, self.debug_packets);
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop = WhoopDevice::new(
+                    peripheral,
+                    adapter,
+                    db_handler,
+                    self.debug_packets,
+                    generation,
+                );
                 whoop.connect().await?;
                 whoop.send_command(WhoopPacket::restart()).await?;
             }
             OpenWhoopCommand::Erase { whoop } => {
-                let peripheral = scan_command(&adapter, Some(whoop)).await?;
-                let mut whoop =
-                    WhoopDevice::new(peripheral, adapter, db_handler, self.debug_packets);
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop = WhoopDevice::new(
+                    peripheral,
+                    adapter,
+                    db_handler,
+                    self.debug_packets,
+                    generation,
+                );
                 whoop.connect().await?;
                 whoop.send_command(WhoopPacket::erase()).await?;
                 info!("Erase command sent - device will trim all stored history data");
             }
             OpenWhoopCommand::Version { whoop } => {
-                let peripheral = scan_command(&adapter, Some(whoop)).await?;
-                let mut whoop = WhoopDevice::new(peripheral, adapter, db_handler, false);
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop =
+                    WhoopDevice::new(peripheral, adapter, db_handler, false, generation);
+
                 whoop.connect().await?;
                 whoop.get_version().await?;
             }
             OpenWhoopCommand::EnableImu { whoop } => {
-                let peripheral = scan_command(&adapter, Some(whoop)).await?;
-                let mut whoop = WhoopDevice::new(peripheral, adapter, db_handler, false);
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop =
+                    WhoopDevice::new(peripheral, adapter, db_handler, false, generation);
                 whoop.connect().await?;
                 whoop
                     .send_command(WhoopPacket::toggle_r7_data_collection())

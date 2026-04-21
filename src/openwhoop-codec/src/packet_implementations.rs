@@ -2,7 +2,7 @@ use chrono::Utc;
 
 use crate::{
     WhoopPacket,
-    constants::{CommandNumber, PacketType},
+    constants::{CommandNumber, PacketType, WhoopGeneration},
     error::WhoopError,
 };
 
@@ -34,12 +34,60 @@ impl WhoopPacket {
         )
     }
 
+    /// WHOOP 5.0 historical transfer start uses an empty payload.
+    pub fn history_start_gen5() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::SendHistoricalData.as_u8(),
+            vec![],
+        )
+    }
+
+    pub fn get_data_range() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::GetDataRange.as_u8(),
+            vec![0x00],
+        )
+    }
+
+    /// WHOOP 5.0 GetDataRange request uses an empty payload.
+    pub fn get_data_range_gen5() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::GetDataRange.as_u8(),
+            vec![],
+        )
+    }
+
+    pub fn get_battery_pack_info() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::GetBatteryPackInfo.as_u8(),
+            vec![0x01],
+        )
+    }
+
     pub fn hello_harvard() -> WhoopPacket {
         WhoopPacket::new(
             PacketType::Command,
             0,
             CommandNumber::GetHelloHarvard.as_u8(),
             vec![0x00],
+        )
+    }
+
+    /// Handshake packet for WHOOP 5.0 (Maverick).
+    pub fn hello() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::GetHello.as_u8(),
+            vec![0x01],
         )
     }
 
@@ -52,9 +100,21 @@ impl WhoopPacket {
         )
     }
 
+    /// Get advertising name for WHOOP 5.0 (Maverick).
+    /// NOTE: revision byte is unknown - 0x00 gets "unsupported revision:0", 0x01 causes reboot.
+    pub fn get_maverick_name() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::GetAdvertisingName.as_u8(),
+            vec![0x01],
+        )
+    }
+
     pub fn set_time() -> Result<WhoopPacket, WhoopError> {
         let mut data = vec![];
-        let current_time = u32::try_from(Utc::now().timestamp()).map_err(|_| WhoopError::Overflow)?;
+        let current_time =
+            u32::try_from(Utc::now().timestamp()).map_err(|_| WhoopError::Overflow)?;
         data.extend_from_slice(&current_time.to_le_bytes());
         data.append(&mut vec![0, 0, 0, 0, 0]); // padding
         Ok(WhoopPacket::new(
@@ -65,10 +125,9 @@ impl WhoopPacket {
         ))
     }
 
-    pub fn history_end(data: u32) -> WhoopPacket {
+    pub fn history_end(end_data: [u8; 8]) -> WhoopPacket {
         let mut packet_data = vec![0x01];
-        packet_data.extend_from_slice(&data.to_le_bytes());
-        packet_data.append(&mut vec![0, 0, 0, 0]); // padding
+        packet_data.extend_from_slice(&end_data);
 
         WhoopPacket::new(
             PacketType::Command,
@@ -78,10 +137,81 @@ impl WhoopPacket {
         )
     }
 
-    pub fn alarm_time(unix: u32) -> WhoopPacket {
-        let mut data = vec![0x01];
-        data.extend_from_slice(&unix.to_le_bytes());
-        data.append(&mut vec![0, 0, 0, 0]); // padding
+    pub fn history_end_failure() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::HistoricalDataResult.as_u8(),
+            vec![0x00],
+        )
+    }
+
+    pub fn abort_historical_transmits() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::AbortHistoricalTransmits.as_u8(),
+            vec![],
+        )
+    }
+
+    pub fn run_alarm_now() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::RunAlarm.as_u8(),
+            vec![0x00],
+        )
+    }
+
+    /// Ring the device immediately on WHOOP 5.0 (Gen5).
+    /// Uses WSBLE_CMD_HAPTICS_RUN_NTF (cmd=19) with revision 0x01.
+    /// Payload:
+    /// - revision=0x01
+    /// - effects=[0x2f, 0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    /// - loop_ctrl=0x00
+    /// - overall_loop=0x01
+    pub fn run_haptic_pattern_gen5() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::RunHapticPatternMaverick.as_u8(),
+            vec![
+                0x01, 0x2f, 0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+            ],
+        )
+    }
+
+    /// Set the alarm time.
+    ///
+    /// Gen4 format:  [rev=0x01][unix:4][padding:4]
+    ///
+    /// Maverick format (21 bytes, from pcapng):
+    ///   [rev=0x04][alarm_id=0x01][unix:4][0x00 0x00][haptic_pattern:4][0x00*4][0x00 0x07 0x1e 0x00]
+    ///   - alarm_id: 1-6 (per firmware debug menu)
+    ///   - haptic_pattern 0x0000982f: same pattern ref as RunHapticPatternMaverick
+    ///   - trailing bytes match official app pcapng capture
+    pub fn alarm_time(unix: u32, generation: WhoopGeneration) -> WhoopPacket {
+        let data = match generation {
+            WhoopGeneration::Gen5 => {
+                let mut d = vec![0x04, 0x01]; // revision=4, alarm_id=1
+                d.extend_from_slice(&unix.to_le_bytes());
+                d.extend_from_slice(&[0x00, 0x00]); // unknown
+                d.extend_from_slice(&[0x2f, 0x98, 0x00, 0x00]); // haptic pattern ref
+                d.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // zeros
+                d.extend_from_slice(&[0x00, 0x00, 0x07, 0x1e, 0x00]); // trailing (timeout?)
+                d
+            }
+            WhoopGeneration::Gen4 => {
+                let mut d = vec![0x01]; // revision=1
+                d.extend_from_slice(&unix.to_le_bytes());
+                d.extend_from_slice(&[0, 0, 0, 0]); // padding
+                d
+            }
+            WhoopGeneration::Placeholder => {
+                panic!("WhoopGeneration::Placeholder cannot be used to build alarm packets")
+            }
+        };
         WhoopPacket::new(
             PacketType::Command,
             0,
@@ -114,6 +244,15 @@ impl WhoopPacket {
             0,
             CommandNumber::ToggleImuModeHistorical.as_u8(),
             vec![u8::from(value)],
+        )
+    }
+
+    pub fn toggle_generic_hr_profile() -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::ToggleGenericHrProfile.as_u8(),
+            vec![0x01],
         )
     }
 
@@ -150,6 +289,17 @@ impl WhoopPacket {
             0,
             CommandNumber::ReportVersionInfo.as_u8(),
             vec![0x00],
+        )
+    }
+
+    /// Enable or disable realtime HR streaming. Payload: [0x01=enable / 0x00=disable].
+    /// No revision byte - same command for Gen4 and Maverick.
+    pub fn toggle_realtime_hr(enable: bool) -> WhoopPacket {
+        WhoopPacket::new(
+            PacketType::Command,
+            0,
+            CommandNumber::ToggleRealtimeHr.as_u8(),
+            vec![u8::from(enable)],
         )
     }
 
@@ -212,6 +362,20 @@ mod tests {
     }
 
     #[test]
+    fn history_start_gen5_packet() {
+        let p = WhoopPacket::history_start_gen5();
+        assert_command_packet(&p, CommandNumber::SendHistoricalData);
+        assert!(p.data.is_empty());
+    }
+
+    #[test]
+    fn get_data_range_gen5_packet() {
+        let p = WhoopPacket::get_data_range_gen5();
+        assert_command_packet(&p, CommandNumber::GetDataRange);
+        assert!(p.data.is_empty());
+    }
+
+    #[test]
     fn hello_harvard_packet() {
         let p = WhoopPacket::hello_harvard();
         assert_command_packet(&p, CommandNumber::GetHelloHarvard);
@@ -238,19 +402,37 @@ mod tests {
 
     #[test]
     fn history_end_encodes_data() {
-        let p = WhoopPacket::history_end(0x12345678);
+        let end_data: [u8; 8] = [0x78, 0x56, 0x34, 0x12, 0xEF, 0xBE, 0xAD, 0xDE];
+        let p = WhoopPacket::history_end(end_data);
         assert_command_packet(&p, CommandNumber::HistoricalDataResult);
-        // First byte is 0x01, then LE u32
         assert_eq!(p.data[0], 0x01);
-        assert_eq!(&p.data[1..5], &0x12345678_u32.to_le_bytes());
+        assert_eq!(&p.data[1..9], &end_data);
         assert_roundtrip(&p);
+    }
+
+    #[test]
+    fn history_end_failure_packet() {
+        let p = WhoopPacket::history_end_failure();
+        assert_command_packet(&p, CommandNumber::HistoricalDataResult);
+        assert_eq!(p.data, vec![0x00]);
+        assert_roundtrip(&p);
+    }
+
+    #[test]
+    fn abort_historical_transmits_packet() {
+        let p = WhoopPacket::abort_historical_transmits();
+        assert_command_packet(&p, CommandNumber::AbortHistoricalTransmits);
+        assert!(p.data.is_empty());
     }
 
     #[test]
     fn erase_packet() {
         let p = WhoopPacket::erase();
         assert_command_packet(&p, CommandNumber::ForceTrim);
-        assert_eq!(p.data, vec![0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0x00]);
+        assert_eq!(
+            p.data,
+            vec![0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0x00]
+        );
         assert_roundtrip(&p);
     }
 
@@ -278,7 +460,7 @@ mod tests {
 
     #[test]
     fn alarm_time_packet() {
-        let p = WhoopPacket::alarm_time(1700000000);
+        let p = WhoopPacket::alarm_time(1700000000, WhoopGeneration::Gen4);
         assert_command_packet(&p, CommandNumber::SetAlarmTime);
         assert_eq!(p.data[0], 0x01);
         assert_eq!(&p.data[1..5], &1700000000_u32.to_le_bytes());
@@ -315,5 +497,28 @@ mod tests {
         let off = WhoopPacket::toggle_optical_mode(false);
         assert_eq!(off.data, vec![0x01, 0x00]);
         assert_roundtrip(&off);
+    }
+
+    #[test]
+    fn alarm_gen5() -> Result<(), WhoopError> {
+        let packet = WhoopPacket::alarm_time(1772710140, WhoopGeneration::Gen5).with_seq(56);
+        let data = packet.framed_packet_maverick()?;
+        let expected =
+            hex::decode("aa011c000001e3812338420401fc68a96900002f980000000000000000071e0089335b59")
+                .unwrap();
+
+        assert_eq!(data, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn run_haptic_pattern_gen5_packet() -> Result<(), WhoopError> {
+        let packet = WhoopPacket::run_haptic_pattern_gen5().with_seq(2);
+        let data = packet.framed_packet_maverick()?;
+        let expected =
+            hex::decode("aa0114000001e1e1230213012f9800000000000000000100a090e5ad").unwrap();
+        assert_eq!(data, expected);
+        Ok(())
     }
 }

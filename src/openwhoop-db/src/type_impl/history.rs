@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
+use openwhoop_codec::{ParsedHistoryReading, SensorData};
 use openwhoop_entities::heart_rate;
 use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
-use openwhoop_codec::{ParsedHistoryReading, SensorData};
 
 use crate::DatabaseHandler;
 
@@ -177,10 +177,7 @@ mod tests {
             db.create_reading(r).await.unwrap();
         }
 
-        let history = db
-            .search_history(SearchHistory::default())
-            .await
-            .unwrap();
+        let history = db.search_history(SearchHistory::default()).await.unwrap();
         assert_eq!(history.len(), 3);
 
         let history = db

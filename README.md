@@ -2,11 +2,11 @@
 
 OpenWhoop is a project that allows you to download and analyze health data directly from your Whoop 4.0 device without a Whoop subscription or Whoop's servers, making the data your own.
 
-Features include sleep detection, exercise detection, stress calculation, HRV analysis, SpO2, skin temperature, and strain scoring — all computed locally from raw sensor data.
+Features include sleep detection, exercise detection, stress calculation, HRV analysis, SpO2, skin temperature, and strain scoring - all computed locally from raw sensor data.
 
 ## Getting Started
 
-First copy `.env.example` into `.env` and then scan for your Whoop device:
+For local development, copy `.env.example` into `.env` and then scan for your Whoop device:
 ```sh
 cp .env.example .env
 cargo run -r -- scan
@@ -22,11 +22,15 @@ Then download data from your Whoop:
 cargo run -r -- download-history
 ```
 
+Use `set-whoop <whoop>` and `set-remote <remote>` to save defaults into `~/.openwhoop/.env`. Release builds and installed binaries read `.env` from `~/.openwhoop/.env`. If `DATABASE_URL` is unset there, the CLI uses `sqlite://$HOME/.openwhoop/db.sqlite?mode=rwc`.
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `scan` | Scan for available Whoop devices |
+| `set-whoop <whoop>` | Save the default Whoop device to `~/.openwhoop/.env` |
+| `set-remote <remote>` | Save the default remote database URL to `~/.openwhoop/.env` |
 | `download-history` | Download historical data from the device |
 | `detect-events` | Detect sleep and exercise events from raw data |
 | `sleep-stats` | Print sleep statistics (all-time and last 7 days) |
@@ -55,13 +59,13 @@ The `set-alarm` command accepts several time formats:
 
 ## Configuration
 
-Configuration is done through environment variables or a `.env` file.
+Configuration is done through environment variables or a `.env` file. Debug runs use a repo-local `.env`; release builds read `~/.openwhoop/.env`.
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `DATABASE_URL` | Database connection string (SQLite or PostgreSQL) | Yes |
+| `DATABASE_URL` | Database connection string (SQLite or PostgreSQL). Optional in release builds, which default to `~/.openwhoop/db.sqlite`. | No |
 | `WHOOP` | Device identifier (MAC address on Linux, name on macOS) | For device commands |
-| `REMOTE` | Remote database URL for `sync` command | For sync |
+| `REMOTE` | Remote database URL for `sync` command. Can be written with `set-remote`. | For sync |
 | `BLE_INTERFACE` | BLE adapter to use, e.g. `"hci1 (usb:Something)"` (Linux only) | No |
 | `DEBUG_PACKETS` | Set to `true` to store raw packets in database | No |
 | `RUST_LOG` | Logging level (default: `info`) | No |
@@ -69,6 +73,8 @@ Configuration is done through environment variables or a `.env` file.
 | `WHOOP_PASSWORD` | WHOOP account password for `download-firmware` | For firmware |
 
 ### Database URLs
+
+If `DATABASE_URL` is unset in a release build, the CLI automatically uses `sqlite://~/.openwhoop/db.sqlite?mode=rwc`.
 
 SQLite:
 ```

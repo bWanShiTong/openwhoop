@@ -2,11 +2,11 @@ use std::fmt::{Debug, Display};
 
 use chrono::{NaiveTime, TimeDelta, Timelike};
 
-use openwhoop_codec::WhoopError;
 use crate::helpers::{
     format_hm::FormatHM,
     time_math::{mean, mean_deltas, mean_time, round_float, std_dev_delta, std_time},
 };
+use openwhoop_codec::WhoopError;
 
 use super::SleepCycle;
 
@@ -117,12 +117,17 @@ impl SleepConsistencyAnalyzer {
         Ok(DurationMetric { std, mean, cv })
     }
 
-    fn duration_metrics(&self, times: &[NaiveTime]) -> Result<DurationMetric<NaiveTime>, WhoopError> {
+    fn duration_metrics(
+        &self,
+        times: &[NaiveTime],
+    ) -> Result<DurationMetric<NaiveTime>, WhoopError> {
         let mean = mean_time(times)?;
         let std = std_time(times, &mean)?;
 
         let num_seconds = |time: NaiveTime| {
-            f64::from(time.hour()) * 3600.0 + f64::from(time.minute()) * 60.0 + f64::from(time.second())
+            f64::from(time.hour()) * 3600.0
+                + f64::from(time.minute()) * 60.0
+                + f64::from(time.second())
         };
 
         let cv = round_float(num_seconds(std) / num_seconds(mean) * 100.0);
@@ -191,8 +196,8 @@ mod tests {
 
     #[test]
     fn perfectly_consistent_sleep() {
-        use chrono::{NaiveDate, TimeDelta};
         use crate::SleepCycle;
+        use chrono::{NaiveDate, TimeDelta};
 
         let records: Vec<SleepCycle> = (0..7)
             .map(|day| {
@@ -227,8 +232,8 @@ mod tests {
 
     #[test]
     fn single_sleep_record() {
-        use chrono::NaiveDate;
         use crate::SleepCycle;
+        use chrono::NaiveDate;
 
         let start = NaiveDate::from_ymd_opt(2025, 1, 1)
             .unwrap()
