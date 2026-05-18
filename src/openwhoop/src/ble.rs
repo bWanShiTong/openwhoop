@@ -25,6 +25,8 @@ pub trait WhoopBleTransport {
 
     async fn subscribe(&self, service: Uuid, characteristic: Uuid) -> anyhow::Result<()>;
 
+    async fn read(&self, service: Uuid, characteristic: Uuid) -> anyhow::Result<Vec<u8>>;
+
     async fn write(
         &self,
         service: Uuid,
@@ -121,6 +123,13 @@ pub mod btleplug_backend {
                 .subscribe(&Self::create_char(service, characteristic))
                 .await?;
             Ok(())
+        }
+
+        async fn read(&self, service: Uuid, characteristic: Uuid) -> anyhow::Result<Vec<u8>> {
+            Ok(self
+                .peripheral
+                .read(&Self::create_char(service, characteristic))
+                .await?)
         }
 
         async fn write(
@@ -328,6 +337,13 @@ pub mod tauri_blec {
                 })
                 .await?;
             Ok(())
+        }
+
+        async fn read(&self, service: Uuid, characteristic: Uuid) -> anyhow::Result<Vec<u8>> {
+            Ok(self
+                .handler
+                .recv_data(characteristic, Some(service))
+                .await?)
         }
 
         async fn write(

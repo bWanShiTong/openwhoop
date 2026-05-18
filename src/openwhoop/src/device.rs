@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::time::{sleep, timeout};
+use uuid::{Uuid, uuid};
 
 use crate::{
     ble::{BleNotification, BleWriteType, WhoopBleTransport, btleplug_backend::BtleplugTransport},
@@ -29,6 +30,7 @@ use self::gen5_sync::Gen5HistorySync;
 pub struct HistorySyncConfig {
     pub overall_timeout: Option<Duration>,
     pub idle_timeout: Duration,
+    pub exit_on_failure: bool,
 }
 
 impl Default for HistorySyncConfig {
@@ -36,6 +38,7 @@ impl Default for HistorySyncConfig {
         Self {
             overall_timeout: None,
             idle_timeout: Duration::from_secs(20),
+            exit_on_failure: false,
         }
     }
 }
@@ -46,12 +49,20 @@ impl HistorySyncConfig {
             overall_timeout: (overall_timeout_secs > 0)
                 .then(|| Duration::from_secs(overall_timeout_secs)),
             idle_timeout: Duration::from_secs(idle_timeout_secs.max(1)),
+            exit_on_failure: false,
         }
+    }
+
+    pub fn with_exit_on_failure(mut self, exit_on_failure: bool) -> Self {
+        self.exit_on_failure = exit_on_failure;
+        self
     }
 }
 
 const REALTIME_STREAM_TIMEOUT: Duration = Duration::from_secs(30);
 const MIN_REALTIME_STRESS_SAMPLES: usize = 8;
+const BATTERY_SERVICE_UUID: Uuid = uuid!("0000180f-0000-1000-8000-00805f9b34fb");
+const BATTERY_LEVEL_CHARACTERISTIC_UUID: Uuid = uuid!("00002a19-0000-1000-8000-00805f9b34fb");
 
 #[derive(Default)]
 struct RealtimeStressWindow {
@@ -265,6 +276,7 @@ where
                 Ok(()) => return Ok(()),
                 Err(err)
                     if !reconnect_attempted
+                        && config.exit_on_failure
                         && should_retry_gen5_history_after_full_reconnect(&err) =>
                 {
                     reconnect_attempted = true;
@@ -537,6 +549,22 @@ where
             Err(_) => Err(anyhow!("timed out waiting for alarm notification")),
         }
     }
+
+    pub async fn get_battery_level(&mut self) -> anyhow::Result<u8> {
+        let value = self
+            .transport
+            .read(BATTERY_SERVICE_UUID, BATTERY_LEVEL_CHARACTERISTIC_UUID)
+            .await?;
+
+        match value.as_slice() {
+            [level] => Ok(*level),
+            [] => Err(anyhow!("battery characteristic returned an empty payload")),
+            bytes => Err(anyhow!(
+                "battery characteristic returned unexpected payload: {:?}",
+                bytes
+            )),
+        }
+    }
 }
 
 fn should_retry_gen5_history_after_full_reconnect(err: &anyhow::Error) -> bool {
@@ -722,6 +750,10 @@ mod tests {
 
         async fn is_connected(&self) -> anyhow::Result<bool> {
             Ok(self.connected.load(Ordering::SeqCst))
+        }
+
+        async fn read(&self, _service: Uuid, _characteristic: Uuid) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![])
         }
 
         async fn subscribe(
@@ -1006,7 +1038,7 @@ mod tests {
         device
             .sync_history(
                 Arc::new(AtomicBool::new(false)),
-                HistorySyncConfig::from_secs(30, 1),
+                HistorySyncConfig::from_secs(30, 1).with_exit_on_failure(true),
             )
             .await
             .expect("history sync should recover after a full reconnect retry");
@@ -1030,6 +1062,38 @@ mod tests {
                 CommandNumber::GetDataRange.as_u8(),
                 CommandNumber::SendHistoricalData.as_u8(),
                 CommandNumber::HistoricalDataResult.as_u8(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_history_gen5_skips_full_reconnect_retry_when_exit_on_failure_is_false() {
+        let db = DatabaseHandler::new("sqlite::memory:").await;
+        let transport = MockTransport::new(DisconnectScenario::StallThenFullReconnectSucceeds);
+        let mut device =
+            WhoopDeviceWith::from_transport(transport.clone(), db, false, WhoopGeneration::Gen5);
+
+        let err = device
+            .sync_history(
+                Arc::new(AtomicBool::new(false)),
+                HistorySyncConfig::from_secs(30, 1),
+            )
+            .await
+            .expect_err("history sync should fail without the forced reconnect retry");
+
+        assert!(err.to_string().contains(
+            "No historical packets observed after SendHistoricalData even after abort/retry"
+        ));
+
+        assert_eq!(
+            transport.writes(),
+            vec![
+                CommandNumber::GetDataRange.as_u8(),
+                CommandNumber::SendHistoricalData.as_u8(),
+                CommandNumber::AbortHistoricalTransmits.as_u8(),
+                CommandNumber::SendHistoricalData.as_u8(),
+                CommandNumber::HistoricalDataResult.as_u8(),
+                CommandNumber::AbortHistoricalTransmits.as_u8(),
             ]
         );
     }

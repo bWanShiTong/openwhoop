@@ -11,8 +11,10 @@ use crate::DatabaseHandler;
 
 impl DatabaseHandler {
     pub async fn create_activity(&self, activity: ActivityPeriod) -> anyhow::Result<()> {
-        if activity.to <= activity.from {
-            return Ok(());
+        if let Some(to) = activity.to {
+            if to <= activity.from {
+                return Ok(());
+            }
         }
 
         if self.activity_overlaps_existing(activity).await?
@@ -88,7 +90,16 @@ impl DatabaseHandler {
 
     pub async fn get_latest_activity(&self) -> anyhow::Result<Option<ActivityPeriod>> {
         Ok(activities::Entity::find()
-            .order_by_desc(activities::Column::End)
+            .order_by_desc(activities::Column::Start)
+            .one(&self.db)
+            .await?
+            .map(map_activity_period))
+    }
+
+    pub async fn get_unfinished_activity(&self) -> anyhow::Result<Option<ActivityPeriod>> {
+        Ok(activities::Entity::find()
+            .filter(activities::Column::End.is_null())
+            .order_by_desc(activities::Column::Start)
             .one(&self.db)
             .await?
             .map(map_activity_period))
@@ -108,7 +119,11 @@ fn map_activity_period(value: activities::Model) -> ActivityPeriod {
 fn search_activity_periods_query(query: SearchActivityPeriods) -> Condition {
     Condition::all()
         .add_option(query.from.map(|from| activities::Column::Start.gt(from)))
-        .add_option(query.to.map(|to| activities::Column::End.lt(to)))
+        .add_option(query.to.map(|to| {
+            Condition::all()
+                .add(activities::Column::End.is_not_null())
+                .add(activities::Column::End.lt(to))
+        }))
         .add_option(
             query
                 .activity
@@ -120,14 +135,23 @@ fn overlap_condition<C>(
     start_column: C,
     end_column: C,
     from: chrono::NaiveDateTime,
-    to: chrono::NaiveDateTime,
+    to: Option<chrono::NaiveDateTime>,
 ) -> Condition
 where
     C: ColumnTrait,
 {
-    Condition::all()
-        .add(start_column.lt(to))
-        .add(end_column.gt(from))
+    match to {
+        Some(to) => Condition::all().add(start_column.lt(to)).add(
+            Condition::any()
+                .add(end_column.is_null())
+                .add(end_column.gt(from)),
+        ),
+        None => Condition::all().add(
+            Condition::any()
+                .add(end_column.is_null())
+                .add(end_column.gt(from)),
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -140,7 +164,7 @@ mod tests {
         ActivityPeriod {
             period_id: base,
             from: base.and_hms_opt(hour, 0, 0).unwrap(),
-            to: base.and_hms_opt(hour + 1, 0, 0).unwrap(),
+            to: Some(base.and_hms_opt(hour + 1, 0, 0).unwrap()),
             activity: ActivityType::Running,
             strain: None,
         }
@@ -155,10 +179,12 @@ mod tests {
                 .unwrap()
                 .and_hms_opt(8, 0, 0)
                 .unwrap(),
-            end: NaiveDate::from_ymd_opt(2025, 1, 1)
-                .unwrap()
-                .and_hms_opt(9, 0, 0)
-                .unwrap(),
+            end: Some(
+                NaiveDate::from_ymd_opt(2025, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(9, 0, 0)
+                    .unwrap(),
+            ),
             activity: "Running".to_string(),
             strain: Some(7.25),
             synced: false,
@@ -275,7 +301,7 @@ mod tests {
         db.create_activity(ActivityPeriod {
             period_id: sleep_date,
             from: sleep_date.and_hms_opt(8, 0, 0).unwrap(),
-            to: sleep_date.and_hms_opt(9, 0, 0).unwrap(),
+            to: Some(sleep_date.and_hms_opt(9, 0, 0).unwrap()),
             activity: ActivityType::Running,
             strain: None,
         })
@@ -285,7 +311,7 @@ mod tests {
         db.create_activity(ActivityPeriod {
             period_id: sleep_date,
             from: sleep_date.and_hms_opt(8, 30, 0).unwrap(),
-            to: sleep_date.and_hms_opt(9, 30, 0).unwrap(),
+            to: Some(sleep_date.and_hms_opt(9, 30, 0).unwrap()),
             activity: ActivityType::Cycling,
             strain: None,
         })
@@ -326,7 +352,7 @@ mod tests {
         db.create_activity(ActivityPeriod {
             period_id: sleep_date,
             from: sleep_date.and_hms_opt(5, 30, 0).unwrap(),
-            to: sleep_date.and_hms_opt(6, 30, 0).unwrap(),
+            to: Some(sleep_date.and_hms_opt(6, 30, 0).unwrap()),
             activity: ActivityType::Running,
             strain: None,
         })
@@ -338,5 +364,76 @@ mod tests {
             .await
             .unwrap();
         assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_unfinished_activity_returns_activity_in_progress() {
+        let db = DatabaseHandler::new("sqlite::memory:").await;
+
+        let now = chrono::Local::now().naive_local();
+        let sleep_date = now.date();
+        db.create_sleep(openwhoop_algos::SleepCycle {
+            id: sleep_date,
+            start: now - chrono::TimeDelta::days(1) - chrono::TimeDelta::hours(8),
+            end: now - chrono::TimeDelta::days(1),
+            min_bpm: 50,
+            max_bpm: 70,
+            avg_bpm: 60,
+            min_hrv: 30,
+            max_hrv: 80,
+            avg_hrv: 55,
+            score: 100.0,
+        })
+        .await
+        .unwrap();
+
+        let active = ActivityPeriod {
+            period_id: sleep_date,
+            from: now - chrono::TimeDelta::minutes(30),
+            to: None,
+            activity: ActivityType::Running,
+            strain: None,
+        };
+
+        db.create_activity(active).await.unwrap();
+
+        let unfinished = db.get_unfinished_activity().await.unwrap().unwrap();
+        assert_eq!(unfinished.from, active.from);
+        assert_eq!(unfinished.to, active.to);
+        assert!(matches!(unfinished.activity, ActivityType::Running));
+    }
+
+    #[tokio::test]
+    async fn get_unfinished_activity_returns_none_when_all_finished() {
+        let db = DatabaseHandler::new("sqlite::memory:").await;
+
+        let now = chrono::Local::now().naive_local();
+        let sleep_date = now.date();
+        db.create_sleep(openwhoop_algos::SleepCycle {
+            id: sleep_date,
+            start: now - chrono::TimeDelta::days(1) - chrono::TimeDelta::hours(8),
+            end: now - chrono::TimeDelta::days(1),
+            min_bpm: 50,
+            max_bpm: 70,
+            avg_bpm: 60,
+            min_hrv: 30,
+            max_hrv: 80,
+            avg_hrv: 55,
+            score: 100.0,
+        })
+        .await
+        .unwrap();
+
+        db.create_activity(ActivityPeriod {
+            period_id: sleep_date,
+            from: now - chrono::TimeDelta::hours(2),
+            to: Some(now - chrono::TimeDelta::hours(1)),
+            activity: ActivityType::Running,
+            strain: None,
+        })
+        .await
+        .unwrap();
+
+        assert!(db.get_unfinished_activity().await.unwrap().is_none());
     }
 }

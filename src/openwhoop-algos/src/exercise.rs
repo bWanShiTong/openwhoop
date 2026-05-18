@@ -23,11 +23,16 @@ impl ExerciseMetrics {
             return Ok(Self::default());
         }
 
-        let count = u64::try_from(exercises.len()).map_err(|_| WhoopError::Overflow)?;
         let durations = exercises
             .into_iter()
-            .map(|e| e.to - e.from)
+            .filter_map(|e| e.to.map(|to| to - e.from))
             .collect::<Vec<_>>();
+
+        if durations.is_empty() {
+            return Ok(Self::default());
+        }
+
+        let count = u64::try_from(durations.len()).map_err(|_| WhoopError::Overflow)?;
 
         let mean_duration = mean_deltas(durations.as_slice())?;
 
@@ -81,14 +86,14 @@ mod tests {
             ActivityPeriod {
                 period_id: base.date(),
                 from: base,
-                to: base + TimeDelta::hours(1),
+                to: Some(base + TimeDelta::hours(1)),
                 activity: ActivityType::Running,
                 strain: None,
             },
             ActivityPeriod {
                 period_id: base.date(),
                 from: base + TimeDelta::hours(4),
-                to: base + TimeDelta::hours(5),
+                to: Some(base + TimeDelta::hours(5)),
                 activity: ActivityType::Cycling,
                 strain: None,
             },

@@ -276,7 +276,7 @@ impl OpenWhoop {
                                 let nap = activities::ActivityPeriod {
                                     period_id: last_sleep.id,
                                     from: sleep.start,
-                                    to: sleep.end,
+                                    to: Some(sleep.end),
                                     activity: activities::ActivityType::Nap,
                                     strain: None,
                                 };
@@ -286,7 +286,7 @@ impl OpenWhoop {
                                 let nap = activities::ActivityPeriod {
                                     period_id: last_sleep.id - TimeDelta::days(1),
                                     from: last_sleep.start,
-                                    to: last_sleep.end,
+                                    to: Some(last_sleep.end),
                                     activity: activities::ActivityType::Nap,
                                     strain: None,
                                 };

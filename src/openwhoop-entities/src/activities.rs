@@ -10,7 +10,7 @@ pub struct Model {
     pub period_id: Date,
     #[sea_orm(unique)]
     pub start: DateTime,
-    pub end: DateTime,
+    pub end: Option<DateTime>,
     pub activity: String,
     #[sea_orm(column_type = "Double", nullable)]
     pub strain: Option<f64>,

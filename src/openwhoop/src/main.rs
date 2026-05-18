@@ -28,11 +28,13 @@ use openwhoop::{
     db::DatabaseHandler,
     types::activities::{ActivityType, SearchActivityPeriods},
 };
+use openwhoop_algos::SleepCycle;
 use openwhoop_codec::{
     WhoopPacket,
     constants::{ALL_WHOOP_SERVICES, WhoopGeneration},
 };
-use openwhoop_entities::packets;
+use openwhoop_entities::{heart_rate, packets};
+use openwhoop_migration::sea_orm::{ActiveValue::NotSet, EntityTrait, Set};
 use tokio::time::sleep;
 
 const OPENWHOOP_CONFIG_DIR: &str = ".openwhoop";
@@ -149,6 +151,13 @@ pub enum OpenWhoopCommand {
         whoop: DeviceId,
     },
     ///
+    /// Get current device battery level
+    ///
+    GetBattery {
+        #[arg(long, env)]
+        whoop: DeviceId,
+    },
+    ///
     /// Copy packets from one database into another
     ///
     Merge { from: String },
@@ -217,6 +226,23 @@ pub enum OpenWhoopCommand {
         maverick: String,
         #[arg(long, default_value = "./firmware")]
         output_dir: String,
+    },
+    ///
+    /// Generate a fresh SQLite database with synthetic heart-rate and sleep data
+    ///
+    GenerateTestDb {
+        #[arg(help = "Number of past days to generate")]
+        days: u32,
+        #[arg(long, default_value = "./test-db.sqlite")]
+        output: PathBuf,
+        #[arg(long, default_value_t = 75)]
+        average_hr: u16,
+        #[arg(long, default_value_t = 55)]
+        sleep_hr: u16,
+        #[arg(long, default_value = "23:00:00")]
+        sleep_start: NaiveTime,
+        #[arg(long, default_value = "07:00:00")]
+        sleep_end: NaiveTime,
     },
 }
 
@@ -437,6 +463,197 @@ async fn download_firmware(
     Ok(())
 }
 
+fn sqlite_database_url(path: &Path) -> String {
+    format!("sqlite://{}?mode=rwc", path.display())
+}
+
+fn sleep_window_for_day(
+    day: chrono::NaiveDate,
+    sleep_start: NaiveTime,
+    sleep_end: NaiveTime,
+) -> (NaiveDateTime, NaiveDateTime) {
+    let start = day.and_time(sleep_start);
+    let end_day = if sleep_end <= sleep_start {
+        day.succ_opt().expect("valid date for sleep end")
+    } else {
+        day
+    };
+    let end = end_day.and_time(sleep_end);
+    (start, end)
+}
+
+fn is_sleep_time(
+    time: NaiveDateTime,
+    sleep_start: NaiveTime,
+    sleep_end: NaiveTime,
+) -> Option<chrono::NaiveDate> {
+    let date = time.date();
+    let candidates = [
+        date.pred_opt().unwrap_or(date),
+        date,
+        date.succ_opt().unwrap_or(date),
+    ];
+
+    candidates.into_iter().find(|candidate| {
+        let (start, end) = sleep_window_for_day(*candidate, sleep_start, sleep_end);
+        time >= start && time < end
+    })
+}
+
+fn synthetic_bpm(base: u16, index: i64, sleep: bool) -> i16 {
+    let wave = match index.rem_euclid(12) {
+        0 => -3,
+        1 => -2,
+        2 => -1,
+        3 => 0,
+        4 => 1,
+        5 => 2,
+        6 => 3,
+        7 => 2,
+        8 => 1,
+        9 => 0,
+        10 => -1,
+        _ => -2,
+    };
+    let drift = if sleep {
+        match index.rem_euclid(5) {
+            0 => -1,
+            1 => 0,
+            2 => 1,
+            3 => 0,
+            _ => -1,
+        }
+    } else {
+        match index.rem_euclid(7) {
+            0 => -2,
+            1 => -1,
+            2 => 0,
+            3 => 1,
+            4 => 2,
+            5 => 1,
+            _ => 0,
+        }
+    };
+
+    let bpm = i32::from(base) + wave + drift;
+    bpm.clamp(35, 220) as i16
+}
+
+fn rr_from_bpm(bpm: i16) -> String {
+    let rr = 60_000 / i32::from(bpm.max(1));
+    format!("{},{},{}", rr - 12, rr, rr + 9)
+}
+
+async fn generate_test_db(
+    output: PathBuf,
+    days: u32,
+    average_hr: u16,
+    sleep_hr: u16,
+    sleep_start: NaiveTime,
+    sleep_end: NaiveTime,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(days > 0, "days must be greater than 0");
+    anyhow::ensure!(sleep_hr > 0, "sleep_hr must be greater than 0");
+    anyhow::ensure!(
+        average_hr > sleep_hr,
+        "average_hr must be greater than sleep_hr"
+    );
+
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    for path in [
+        output.clone(),
+        PathBuf::from(format!("{}-wal", output.display())),
+        PathBuf::from(format!("{}-shm", output.display())),
+    ] {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to remove {}", path.display()));
+            }
+        }
+    }
+
+    let db = DatabaseHandler::new(sqlite_database_url(&output)).await;
+    let now = Local::now().naive_local();
+    let today = now.date();
+    let start_date = today - TimeDelta::days(i64::from(days.saturating_sub(1)));
+    let start_time = start_date.and_hms_opt(0, 0, 0).expect("valid midnight");
+
+    let mut readings = Vec::new();
+
+    for step in 0..(i64::from(days) * 24 * 60 * 60) {
+        let time = start_time + TimeDelta::seconds(step);
+        if time > now {
+            break;
+        }
+
+        let sleep_day = is_sleep_time(time, sleep_start, sleep_end);
+        let bpm = synthetic_bpm(
+            if sleep_day.is_some() {
+                sleep_hr
+            } else {
+                average_hr
+            },
+            step,
+            sleep_day.is_some(),
+        );
+
+        readings.push(heart_rate::ActiveModel {
+            id: NotSet,
+            bpm: Set(bpm),
+            time: Set(time),
+            rr_intervals: Set(rr_from_bpm(bpm)),
+            activity: NotSet,
+            stress: NotSet,
+            spo2: NotSet,
+            skin_temp: NotSet,
+            imu_data: NotSet,
+            sensor_data: NotSet,
+            synced: Set(false),
+        });
+    }
+
+    for chunk in readings.chunks(90) {
+        heart_rate::Entity::insert_many(chunk.to_vec())
+            .exec(db.connection())
+            .await?;
+    }
+
+    for offset in 0..days {
+        let sleep_day = start_date + TimeDelta::days(i64::from(offset));
+        let (start, end) = sleep_window_for_day(sleep_day, sleep_start, sleep_end);
+        if start > now {
+            break;
+        }
+
+        db.create_sleep(SleepCycle {
+            id: sleep_day,
+            start,
+            end: if end > now { now } else { end },
+            min_bpm: sleep_hr.saturating_sub(4) as u8,
+            max_bpm: sleep_hr.saturating_add(4) as u8,
+            avg_bpm: sleep_hr as u8,
+            min_hrv: 48,
+            max_hrv: 82,
+            avg_hrv: 64,
+            score: 100.0,
+        })
+        .await?;
+    }
+
+    println!(
+        "Generated {} days of test data at {}",
+        days,
+        output.display()
+    );
+    Ok(())
+}
+
 async fn scan_command(
     adapter: &Adapter,
     device_id: Option<DeviceId>,
@@ -585,31 +802,18 @@ pub fn sanitize_name(name: &str) -> String {
 
 impl OpenWhoopCli {
     async fn run(self) -> anyhow::Result<()> {
-        if let OpenWhoopCommand::SetWhoop { whoop } = &self.subcommand {
-            let env_path = set_default_whoop(whoop)?;
-            println!("Set WHOOP={} in {}", whoop, env_path.display());
-            return Ok(());
-        }
-
-        if let OpenWhoopCommand::SetRemote { remote } = &self.subcommand {
-            let env_path = set_default_remote(remote)?;
-            println!("Set REMOTE={} in {}", remote, env_path.display());
-            return Ok(());
-        }
-
-        if let OpenWhoopCommand::DownloadFirmware {
-            email,
-            password,
-            device_name,
-            maxim,
-            nordic,
-            ruggles,
-            pearl,
-            maverick,
-            output_dir,
-        } = &self.subcommand
-        {
-            return download_firmware(
+        match &self.subcommand {
+            OpenWhoopCommand::SetWhoop { whoop } => {
+                let env_path = set_default_whoop(whoop)?;
+                println!("Set WHOOP={} in {}", whoop, env_path.display());
+                return Ok(());
+            }
+            OpenWhoopCommand::SetRemote { remote } => {
+                let env_path = set_default_remote(remote)?;
+                println!("Set REMOTE={} in {}", remote, env_path.display());
+                return Ok(());
+            }
+            OpenWhoopCommand::DownloadFirmware {
                 email,
                 password,
                 device_name,
@@ -619,8 +823,39 @@ impl OpenWhoopCli {
                 pearl,
                 maverick,
                 output_dir,
-            )
-            .await;
+            } => {
+                return download_firmware(
+                    email,
+                    password,
+                    device_name,
+                    maxim,
+                    nordic,
+                    ruggles,
+                    pearl,
+                    maverick,
+                    output_dir,
+                )
+                .await;
+            }
+            &OpenWhoopCommand::GenerateTestDb {
+                days,
+                ref output,
+                average_hr,
+                sleep_hr,
+                sleep_start,
+                sleep_end,
+            } => {
+                return generate_test_db(
+                    output.clone(),
+                    days,
+                    average_hr,
+                    sleep_hr,
+                    sleep_start,
+                    sleep_end,
+                )
+                .await;
+            }
+            _ => {}
         }
 
         let database_url = resolve_database_url(self.database_url.clone())?;
@@ -663,7 +898,8 @@ impl OpenWhoopCli {
                         HistorySyncConfig::from_secs(
                             history_timeout_secs,
                             history_idle_timeout_secs,
-                        ),
+                        )
+                        .with_exit_on_failure(true),
                     )
                     .await?;
 
@@ -859,6 +1095,14 @@ impl OpenWhoopCli {
                     error!("Unexpected response from device: {:?}", data);
                 }
             }
+            OpenWhoopCommand::GetBattery { whoop } => {
+                let (peripheral, generation) = scan_command(&adapter, Some(whoop)).await?;
+                let mut whoop =
+                    WhoopDevice::new(peripheral, adapter, db_handler, false, generation);
+                whoop.connect().await?;
+                let level = whoop.get_battery_level().await?;
+                println!("Battery level: {}%", level);
+            }
             OpenWhoopCommand::Merge { from } => {
                 let from_db = DatabaseHandler::new(from).await;
 
@@ -940,7 +1184,7 @@ impl OpenWhoopCli {
                 let bin_name = command.get_name().to_string();
                 generate(shell, &mut command, bin_name, &mut io::stdout());
             }
-            OpenWhoopCommand::DownloadFirmware { .. } => {
+            OpenWhoopCommand::DownloadFirmware { .. } | OpenWhoopCommand::GenerateTestDb { .. } => {
                 unreachable!("handled before BLE/DB init")
             }
         }

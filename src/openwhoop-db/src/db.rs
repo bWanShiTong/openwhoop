@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use openwhoop_entities::{packets, sleep_cycles, strain};
 use openwhoop_migration::{Migrator, MigratorTrait, OnConflict};
 use openwhoop_types::activities::SearchActivityPeriods;
@@ -47,6 +47,13 @@ pub enum DailyStatsAverage {
 pub struct StressReading {
     pub time: NaiveDateTime,
     pub stress: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActivityHeartRateStats {
+    pub min_hr: u8,
+    pub max_hr: u8,
+    pub avg_hr: f64,
 }
 
 impl DatabaseHandler {
@@ -210,7 +217,7 @@ impl DatabaseHandler {
     pub async fn get_daily_info(&self, date: NaiveDate) -> anyhow::Result<DailyInfo> {
         Ok(DailyInfo {
             date,
-            sleep: self.get_sleep_for_date(date).await?,
+            sleep: self.get_sleep_for_date(date - Duration::days(1)).await?,
             strain: self.get_strain_for_date(date).await?,
             activities: self
                 .search_activities(SearchActivityPeriods {
@@ -549,7 +556,7 @@ mod tests {
         db.create_activity(openwhoop_types::activities::ActivityPeriod {
             period_id: date,
             from: date.and_hms_opt(10, 0, 0).unwrap(),
-            to: date.and_hms_opt(11, 0, 0).unwrap(),
+            to: Some(date.and_hms_opt(11, 0, 0).unwrap()),
             activity: openwhoop_types::activities::ActivityType::Activity,
             strain: Some(8.5),
         })

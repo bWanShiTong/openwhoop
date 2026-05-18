@@ -7,7 +7,7 @@ use strum::EnumIter;
 pub struct ActivityPeriod {
     pub period_id: NaiveDate,
     pub from: NaiveDateTime,
-    pub to: NaiveDateTime,
+    pub to: Option<NaiveDateTime>,
     pub activity: ActivityType,
     pub strain: Option<f64>,
 }
